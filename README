@@ -1,0 +1,2 @@
+Simple client software for controlling the RN1 robot. Should be fairly portable, using the
+SFML library to provide graphics, key/mouse inputs and networking.
