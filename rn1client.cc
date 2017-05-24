@@ -12,14 +12,37 @@
 #include <SFML/Network.hpp>
 
 #include "../rn1-host/mapping.h"
+#include "../rn1-brain/comm.h"
+#include "client_memdisk.h"
+
+#define I16FROMBUF(b_, s_)  ( ((uint16_t)b_[(s_)+0]<<8) | ((uint16_t)b_[(s_)+1]<<0) )
+#define I32FROMBUF(b_, s_)  ( ((uint32_t)b_[(s_)+0]<<24) | ((uint32_t)b_[(s_)+1]<<16) | ((uint32_t)b_[(s_)+2]<<8) | ((uint32_t)b_[(s_)+3]<<0) )
+
+
+uint32_t robot_id = 0xacdcabba;
 
 sf::Font arial;
 
+//int screen_x = 1200;
+//int screen_y = 900;
+
 int screen_x = 1200;
-int screen_y = 900;
+int screen_y = 700;
 
 double origin_x = 0;
 double origin_y = 0;
+
+double cur_angle = 0.0;
+double cur_x = 0.0;
+double cur_y = 0.0;
+
+bool dest_clicked;
+double dest_x, dest_y, dest_angle;
+
+double robot_xs = 480.0;
+double robot_ys = 524.0;
+double lidar_xoffs = 120.0;
+double lidar_yoffs = 0.0;
 
 
 void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
@@ -87,8 +110,25 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	}
 }
 
-map_page_t*  pages[MAP_W][MAP_W];
-qmap_page_t* qpages[MAP_W][MAP_W];
+int32_t hwdbg[10];
+
+void draw_hwdbg(sf::RenderWindow& win)
+{
+	sf::Text t;
+	char buf[500];
+	t.setFont(arial);
+	t.setCharacterSize(12);
+	t.setColor(sf::Color(0,0,0));
+	for(int i = 0; i<10; i++)
+	{
+		sprintf(buf, "dbg[%2i] = %11d (%08x)", i, hwdbg[i], hwdbg[i]);
+		t.setString(buf);
+		t.setPosition(10,screen_y-170 + 15*i);
+		win.draw(t);
+	}
+}
+
+world_t world;
 
 void draw_map(sf::RenderWindow& win)
 {
@@ -96,50 +136,91 @@ void draw_map(sf::RenderWindow& win)
 	{
 		for(int y = 0; y < MAP_W; y++)
 		{
-			if(pages[x][y])
+			if(world.pages[x][y])
 			{
 				int startx = -MAP_MIDDLE_UNIT*MAP_UNIT_W + x*MAP_PAGE_W*MAP_UNIT_W + origin_x;
 				int starty = -MAP_MIDDLE_UNIT*MAP_UNIT_W + y*MAP_PAGE_W*MAP_UNIT_W + origin_y;
-				draw_page(win, pages[x][y], startx, starty);
+				draw_page(win, world.pages[x][y], startx, starty);
 			}
 		}
+	}
+}
+
+
+void draw_robot(sf::RenderWindow& win)
+{
+	sf::ConvexShape r(5);
+	r.setPoint(0, sf::Vector2f(0,0));
+	r.setPoint(1, sf::Vector2f(0,robot_ys/mm_per_pixel));
+	r.setPoint(2, sf::Vector2f(robot_xs/mm_per_pixel,robot_ys/mm_per_pixel));
+	r.setPoint(3, sf::Vector2f(1.3*robot_xs/mm_per_pixel,0.5*robot_ys/mm_per_pixel));
+	r.setPoint(4, sf::Vector2f(robot_xs/mm_per_pixel,0));
+
+	r.setOrigin((0.5*robot_xs+lidar_xoffs)/mm_per_pixel,(0.5*robot_ys+lidar_yoffs)/mm_per_pixel);
+
+	r.setFillColor(sf::Color(180,100,70));
+
+	r.setRotation(cur_angle);
+	r.setPosition((cur_x+origin_x)/mm_per_pixel,(cur_y+origin_y)/mm_per_pixel);
+
+	win.draw(r);
+
+	if(dest_clicked)
+	{
+		r.setFillColor(sf::Color(0,255,0,128));
+		r.setRotation(cur_angle+dest_angle);
+		r.setPosition((origin_x+dest_x)/mm_per_pixel,(origin_y+dest_y)/mm_per_pixel);
+		win.draw(r);
+	}
+}
+
+typedef struct
+{
+	int32_t ang; // int32_t range --> -180..+180 deg; let it overflow freely. 1 unit = 83.81903171539 ndeg
+	int32_t x;   // in mm
+	int32_t y;
+} pos_t;
+
+typedef struct
+{
+	int valid;
+	int32_t x;   // in mm
+	int32_t y;
+} point_t;
+
+typedef struct
+{
+	pos_t robot_pos;
+	point_t scan[180];
+} lidar_scan_t;
+
+lidar_scan_t lidar;
+
+void draw_lidar(sf::RenderWindow& win, lidar_scan_t* lid)
+{
+	for(int i=0; i < 180; i++)
+	{
+		if(!lid->scan[i].valid) continue;
+
+		sf::RectangleShape rect(sf::Vector2f(3,3));
+		rect.setOrigin(1.5,1.5);
+		rect.setPosition((lid->scan[i].x+origin_x)/mm_per_pixel, (lid->scan[i].y+origin_y)/mm_per_pixel);
+		rect.setFillColor(sf::Color(0, 70, 0, 80));
+		win.draw(rect);
 	}
 }
 
 sf::IpAddress serv_ip;
 unsigned short serv_port;
 
+sf::TcpSocket tcpsock;
+
 int main(int argc, char** argv)
 {
-
-	pages[128][128] = (map_page_t*)malloc(sizeof(map_page_t));
-
-	pages[128][128]->units[100][100].result = 2;
-	pages[128][128]->units[101][100].result = 2;
-	pages[128][128]->units[102][100].result = 2;
-	pages[128][128]->units[103][100].result = 2;
-	pages[128][128]->units[104][100].result = 2;
-	pages[128][128]->units[105][100].result = 2;
-	pages[128][128]->units[105][101].result = 2;
-	pages[128][128]->units[105][102].result = 2;
-	pages[128][128]->units[105][103].result = 2;
-
-	pages[128][128]->units[120][120].result = 1;
-
-
-	pages[129][128] = (map_page_t*)malloc(sizeof(map_page_t));
-
-	pages[129][128]->units[100][100].result = 1;
-	pages[129][128]->units[101][100].result = 1;
-	pages[129][128]->units[102][100].result = 1;
-	pages[129][128]->units[103][100].result = 1;
-	pages[129][128]->units[104][100].result = 1;
-	pages[129][128]->units[105][100].result = 1;
-	pages[129][128]->units[105][101].result = 1;
-	pages[129][128]->units[105][102].result = 1;
-	pages[129][128]->units[105][103].result = 1;
-
-	pages[129][128]->units[120][120].result = 2;
+	bool f1_pressed = false;
+	bool f5_pressed = false;
+	bool return_pressed = false;
+	int focus = 1;
 
 	if(argc != 3)
 	{
@@ -147,8 +228,17 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
+
 	serv_ip = argv[1];
 	serv_port = atoi(argv[2]);
+
+	tcpsock.setBlocking(false);
+	printf("Connecting...\n");
+	while(tcpsock.connect(serv_ip, serv_port) != sf::Socket::Done)
+	{
+		usleep(1000);
+		//TODO: timeout
+	}
 
 	if (!arial.loadFromFile("arial.ttf"))
 	{
@@ -176,10 +266,94 @@ int main(int argc, char** argv)
 				screen_x = size.x;
 				screen_y = size.y;
 			}
-			
+			if(event.type == sf::Event::LostFocus)
+				focus = 0;
+
+			if(event.type == sf::Event::GainedFocus)
+				focus = 1;
+
 		}
 
-		if(1)
+		uint8_t buf[3] = {0,0,0};
+		size_t received = 0;
+		sf::Socket::Status ret;
+		if( (ret = tcpsock.receive(buf, 3, received)) == sf::Socket::Done)
+		{
+			if(received != 3)
+			{
+				printf("error horror.\n");
+			}
+
+			int msgid = buf[0];
+			int len = ((int)buf[1]<<8) | buf[2];
+
+		//	printf("msgid=%d len=%d\n", msgid, len);
+
+			if(len > 2000) len=2000;
+			uint8_t rxbuf[2048];
+
+			int total_rx = 0;
+			while(total_rx < len)
+			{
+				if( (ret = tcpsock.receive(&rxbuf[total_rx], len-total_rx, received)) == sf::Socket::Done)
+				{
+					total_rx += received;
+		//			printf("    rx %d -> total %d\n", received, total_rx);
+				}
+			}
+
+
+			if(total_rx != len)
+				printf("error horror2  %d != %d\n", total_rx, len);
+
+			switch(msgid)
+			{
+				case 130:
+				{
+					cur_angle = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
+					cur_x = (int32_t)I32FROMBUF(rxbuf,2);
+					cur_y = (int32_t)I32FROMBUF(rxbuf,6);
+				}
+				break;
+
+				case 131:
+				{
+					lidar.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
+					int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
+					int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
+
+					for(int i=0; i<180; i++)
+					{
+						int x = (int8_t)rxbuf[10+2*i];
+						int y = (int8_t)rxbuf[10+2*i+1];
+						if(x==0 && y==0)
+						{
+							lidar.scan[i].valid = 0;
+							continue;
+						}
+						lidar.scan[i].valid = 1;
+						lidar.scan[i].x = x*40 + mid_x;
+						lidar.scan[i].y = y*40 + mid_y;
+					}
+				}
+				break;
+
+				case 132:
+				{
+					for(int i=0; i<10; i++)
+					{
+						hwdbg[i] = (int32_t)I32FROMBUF(rxbuf,4*i);
+					}
+				}
+				break;
+
+				default:
+				break;
+			}
+		}
+
+
+		if(focus)
 		{
 			sf::Vector2i localPosition = sf::Mouse::getPosition(win);
 			double click_x = (localPosition.x * mm_per_pixel) - origin_x;
@@ -187,7 +361,8 @@ int main(int argc, char** argv)
 
 			if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
 			{
-				printf("Click x=%.1f y=%.1f mm\n", click_x, click_y);
+				dest_clicked = true;
+				dest_x = click_x; dest_y = click_y;
 			}
 
 			if(sf::Mouse::isButtonPressed(sf::Mouse::Right))
@@ -225,27 +400,88 @@ int main(int argc, char** argv)
 				origin_y += (screen_y/2.0)*mm_per_pixel;
 			}
 
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5))
+			{
+				if(!f5_pressed)
+				{
+					load_all_pages_on_disk(&world);
+					f5_pressed = true;
+				}
+			}
+			else
+				f5_pressed = false;
+			
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F1))
+			{
+				if(!f1_pressed)
+				{
+					uint8_t test[11] = {55, 0, 8,   0,0,1,10,  255,255,254,245};
+					if(tcpsock.send(test, 11) != sf::Socket::Done)
+					{
+						printf("Send error\n");
+					}
+					f1_pressed = true;
+				}
+			}
+			else
+				f1_pressed = false;
+
+
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
 			{
-				origin_y -= 20.0;
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
 			{
-				origin_y += 20.0;
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
 			{
-				origin_x -= 20.0;
 			}
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
 			{
-				origin_x += 20.0;
 			}
+
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Return))
+			{
+				if(!return_pressed)
+				{
+					return_pressed = 1;
+					if(dest_clicked)
+					{
+						int x = dest_x; int y = dest_y;
+
+						uint8_t test[11] = {55, 0, 8,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+							(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
+						if(tcpsock.send(test, 11) != sf::Socket::Done)
+						{
+							printf("Send error\n");
+						}
+
+
+						dest_clicked = false;
+					}
+
+				}
+			}
+			else
+			{
+				return_pressed = 0;
+			}
+
+
+
 		}
 
 		win.clear(sf::Color(200,220,240));
 
 		draw_map(win);
+
+		draw_robot(win);
+
+		draw_lidar(win, &lidar);
+
+		draw_hwdbg(win);
 
 		win.display();
 
