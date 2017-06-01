@@ -14,9 +14,12 @@
 #include "../rn1-host/mapping.h"
 #include "../rn1-brain/comm.h"
 #include "client_memdisk.h"
+#include "uthash.h"
 
 #define I16FROMBUF(b_, s_)  ( ((uint16_t)b_[(s_)+0]<<8) | ((uint16_t)b_[(s_)+1]<<0) )
 #define I32FROMBUF(b_, s_)  ( ((uint32_t)b_[(s_)+0]<<24) | ((uint32_t)b_[(s_)+1]<<16) | ((uint32_t)b_[(s_)+2]<<8) | ((uint32_t)b_[(s_)+3]<<0) )
+
+world_t world;
 
 
 uint32_t robot_id = 0xacdcabba;
@@ -27,7 +30,7 @@ sf::Font arial;
 //int screen_y = 900;
 
 int screen_x = 1200;
-int screen_y = 700;
+int screen_y = 1000; //700;
 
 double origin_x = 0;
 double origin_y = 0;
@@ -49,6 +52,12 @@ int charge_finished;
 float bat_voltage;
 int bat_percentage;
 
+
+double dev_start_x;
+double dev_start_y;
+double dev_end_x;
+double dev_end_y;
+
 void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
 {
 	int unit_x = mm_x / MAP_UNIT_W;
@@ -66,7 +75,255 @@ void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageof
 	*pageoffs_y = offs_y;
 }
 
+void unit_coords(int mm_x, int mm_y, int* unit_x, int* unit_y)
+{
+	int unit_x_t = mm_x / MAP_UNIT_W;
+	int unit_y_t = mm_y / MAP_UNIT_W;
+	unit_x_t += MAP_MIDDLE_UNIT;
+	unit_y_t += MAP_MIDDLE_UNIT;
+
+	*unit_x = unit_x_t;
+	*unit_y = unit_y_t;
+}
+
+void mm_from_unit_coords(int unit_x, int unit_y, int* mm_x, int* mm_y)
+{
+	unit_x -= MAP_MIDDLE_UNIT;
+	unit_y -= MAP_MIDDLE_UNIT;
+
+	*mm_x = unit_x * MAP_UNIT_W;
+	*mm_y = unit_y * MAP_UNIT_W;
+}
+
+void page_coords_from_unit_coords(int unit_x, int unit_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
+{
+	int page_x = unit_x / MAP_PAGE_W;
+	int page_y = unit_y / MAP_PAGE_W;
+	int offs_x = unit_x - page_x*MAP_PAGE_W;
+	int offs_y = unit_y - page_y*MAP_PAGE_W;
+
+	*pageidx_x = page_x;
+	*pageidx_y = page_y;
+	*pageoffs_x = offs_x;
+	*pageoffs_y = offs_y;
+}
+
+
 double mm_per_pixel = 10.0;
+
+
+void draw_dev(sf::RenderWindow& win)
+{
+	sf::CircleShape circ(40.0/mm_per_pixel);
+	circ.setOrigin(20.0/mm_per_pixel, 20.0/mm_per_pixel);
+	circ.setFillColor(sf::Color(200,50,50));
+	circ.setPosition((dev_start_x+origin_x)/mm_per_pixel,(dev_start_y+origin_y)/mm_per_pixel);
+	win.draw(circ);
+
+	circ.setFillColor(sf::Color(50,200,50));
+	circ.setPosition((dev_end_x+origin_x)/mm_per_pixel,(dev_end_y+origin_y)/mm_per_pixel);
+	win.draw(circ);
+}
+
+typedef struct
+{
+	int x;
+	int y;
+} xy_t;
+
+typedef struct search_unit_T
+{
+	xy_t loc;
+	float g;
+	float f;
+
+	search_unit_T* parent;
+
+	UT_hash_handle hh;
+} search_unit_t;
+
+#define sq(x) ((x)*(x))
+#define MAX_F 99999999999999999.9
+
+void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g, int b)
+{
+	int x_mm, y_mm;
+	mm_from_unit_coords(unit_x, unit_y, &x_mm, &y_mm);
+
+	sf::CircleShape circ(14.0/mm_per_pixel);
+	circ.setOrigin(7.0/mm_per_pixel, 7.0/mm_per_pixel);
+	circ.setFillColor(sf::Color(r,g,b));
+	circ.setPosition((x_mm+origin_x)/mm_per_pixel,(y_mm+origin_y)/mm_per_pixel);
+	win.draw(circ);
+	win.display();
+}
+
+void dev_search(sf::RenderWindow& win)
+{
+	win.setFramerateLimit(0);
+
+	int s_x, s_y, e_x, e_y;
+	unit_coords(dev_start_x, dev_start_y, &s_x, &s_y);
+	unit_coords(dev_end_x, dev_end_y, &e_x, &e_y);
+
+	printf("Start %d,%d,  end %d,%d\n", s_x, s_y, e_x, e_y);
+
+	search_unit_t* closed_set = NULL;
+
+	search_unit_t* open_set = NULL;
+
+	search_unit_t* p_start = (search_unit_t*) malloc(sizeof(search_unit_t));
+	memset(p_start, 0, sizeof(search_unit_t));
+
+	p_start->loc.x = s_x;
+	p_start->loc.y = s_y;
+	p_start->parent = NULL;
+	// g = 0
+	p_start->f = sqrt((float)(sq(e_x-s_x) + sq(e_y-s_y)));
+
+	HASH_ADD(hh, open_set, loc,sizeof(xy_t), p_start);
+	dev_draw_circle(win, p_start->loc.x, p_start->loc.y, 200,0,0);
+
+	while(HASH_CNT(hh, open_set) > 0)
+	{
+		// Find the lowest f score from open_set.
+		search_unit_t* p_cur;
+		float lowest_f = 2.0*MAX_F;
+		for(search_unit_t* p_iter = open_set; p_iter != NULL; p_iter=p_iter->hh.next)
+		{
+			if(p_iter->f < lowest_f)
+			{
+				lowest_f = p_iter->f;
+				p_cur = p_iter;
+			}
+		}
+
+		if(p_cur->loc.x == e_x && p_cur->loc.y == e_y)
+		{
+			// solution found.
+
+			// Reconstruct the path
+
+			search_unit_t* p_recon = p_cur;
+			while( (p_recon = p_recon->parent) )
+			{
+				dev_draw_circle(win, p_recon->loc.x, p_recon->loc.y, 255,255,255);
+			}
+
+			// Free all memory.
+			search_unit_t *p_del, *p_tmp;
+			HASH_ITER(hh, closed_set, p_del, p_tmp)
+			{
+				HASH_DEL(closed_set, p_del);
+				free(p_del);
+			}
+			HASH_ITER(hh, open_set, p_del, p_tmp)
+			{
+				HASH_DEL(open_set, p_del);
+				free(p_del);
+			}
+
+			sleep(10);
+			return;
+		}
+
+		// move from open to closed:
+		HASH_DELETE(hh, open_set, p_cur);
+		HASH_ADD(hh, closed_set, loc,sizeof(xy_t), p_cur);
+		dev_draw_circle(win, p_cur->loc.x, p_cur->loc.y, 0,200,0);
+
+
+		// For each neighbor
+		for(int xx=-1; xx<=1; xx++)
+		{
+			for(int yy=-1; yy<=1; yy++)
+			{
+				search_unit_t* found;
+				float new_g;
+				if(xx == 0 && yy == 0) continue;
+
+				search_unit_t* p_neigh;
+				xy_t neigh_loc = {p_cur->loc.x + xx, p_cur->loc.y + yy};
+
+				// Check if it's out-of-allowed area here:
+
+				int num_obstacles = 0;
+				for(int chk_x=-6; chk_x<=6; chk_x++)
+				{
+					for(int chk_y=-6; chk_y<=6; chk_y++)
+					{
+						int pageidx_x, pageidx_y, pageoffs_x, pageoffs_y;
+						page_coords_from_unit_coords(neigh_loc.x+chk_x, neigh_loc.y+chk_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
+
+						if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
+						{
+							goto OUT_OF_BOUNDS;
+						}
+
+						if(world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL)
+						{
+							num_obstacles++;
+						}
+					}
+				}
+
+				if(num_obstacles > 2)
+					continue;
+
+				HASH_FIND(hh, closed_set, &neigh_loc,sizeof(xy_t), found);
+				if(found)
+					continue; // ignore neighbor that's in closet_set.
+
+				// gscore for the neigbor: distance from the start to neighbor
+				// is current unit's g score plus distance to the neighbor.
+				new_g = p_cur->g;
+				if(xx == 0 || yy == 0)
+					new_g += 1.0;
+				else
+					new_g += sqrt(2.0);
+
+				HASH_FIND(hh, open_set, &neigh_loc,sizeof(xy_t), p_neigh);
+				if(!p_neigh)
+				{
+					p_neigh = (search_unit_t*) malloc(sizeof(search_unit_t));
+					memset(p_neigh, 0, sizeof(search_unit_t));
+					p_neigh->loc.x = neigh_loc.x; p_neigh->loc.y = neigh_loc.y;
+					HASH_ADD(hh, open_set, loc,sizeof(xy_t), p_neigh);
+					dev_draw_circle(win, p_cur->loc.x, p_cur->loc.y, 200,0,0);
+
+				}
+				else /*found it*/ if(new_g >= p_neigh->g)
+				{
+					continue; // Neighbor was in open set, but it already has better score
+				}
+
+				p_neigh->parent = p_cur;
+				p_neigh->g = new_g;
+				p_neigh->f = new_g + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
+
+				OUT_OF_BOUNDS: ;
+
+			}
+		}		
+	}
+
+	search_unit_t *p_del, *p_tmp;
+	HASH_ITER(hh, closed_set, p_del, p_tmp)
+	{
+		HASH_DELETE(hh, closed_set, p_del);
+		free(p_del);
+	}
+	HASH_ITER(hh, open_set, p_del, p_tmp)
+	{
+		HASH_DELETE(hh, open_set, p_del);
+		free(p_del);
+	}
+	
+	return;
+	// Failure.
+
+}
+
 
 void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 {
@@ -216,8 +473,6 @@ void draw_bat_status(sf::RenderWindow& win)
 	}
 }
 
-world_t world;
-
 void draw_map(sf::RenderWindow& win)
 {
 	for(int x = 0; x < MAP_W; x++)
@@ -329,24 +584,30 @@ int main(int argc, char** argv)
 	bool f1_pressed = false;
 	bool f5_pressed = false;
 	bool return_pressed = false;
+	bool num3_pressed = false;
 	int focus = 1;
+	int online = 1;
 
 	if(argc != 3)
 	{
 		printf("Usage: rn1client addr port\n");
-		return 1;
+		printf("Starting in offline mode.\n");
+		online = 0;
 	}
 
 
-	serv_ip = argv[1];
-	serv_port = atoi(argv[2]);
-
-	tcpsock.setBlocking(false);
-	printf("Connecting...\n");
-	while(tcpsock.connect(serv_ip, serv_port) != sf::Socket::Done)
+	if(online)
 	{
-		usleep(1000);
-		//TODO: timeout
+		serv_ip = argv[1];
+		serv_port = atoi(argv[2]);
+
+		tcpsock.setBlocking(false);
+		printf("Connecting...\n");
+		while(tcpsock.connect(serv_ip, serv_port) != sf::Socket::Done)
+		{
+			usleep(1000);
+			//TODO: timeout
+		}
 	}
 
 	if (!arial.loadFromFile("arial.ttf"))
@@ -385,109 +646,112 @@ int main(int argc, char** argv)
 
 		uint8_t buf[3] = {0,0,0};
 		size_t received = 0;
-		sf::Socket::Status ret;
-		if( (ret = tcpsock.receive(buf, 3, received)) == sf::Socket::Done)
+
+		if(online)
 		{
-			if(received != 3)
+			sf::Socket::Status ret;
+			if( (ret = tcpsock.receive(buf, 3, received)) == sf::Socket::Done)
 			{
-				printf("error horror.\n");
-			}
-
-			int msgid = buf[0];
-			int len = ((int)buf[1]<<8) | buf[2];
-
-		//	printf("msgid=%d len=%d\n", msgid, len);
-
-			if(len > 2000) len=2000;
-			uint8_t rxbuf[2048];
-
-			int total_rx = 0;
-			while(total_rx < len)
-			{
-				if( (ret = tcpsock.receive(&rxbuf[total_rx], len-total_rx, received)) == sf::Socket::Done)
+				if(received != 3)
 				{
-					total_rx += received;
-		//			printf("    rx %d -> total %d\n", received, total_rx);
+					printf("error horror.\n");
 				}
-			}
 
+				int msgid = buf[0];
+				int len = ((int)buf[1]<<8) | buf[2];
 
-			if(total_rx != len)
-				printf("error horror2  %d != %d\n", total_rx, len);
+			//	printf("msgid=%d len=%d\n", msgid, len);
 
-			switch(msgid)
-			{
-				case 130:
+				if(len > 2000) len=2000;
+				uint8_t rxbuf[2048];
+
+				int total_rx = 0;
+				while(total_rx < len)
 				{
-					cur_angle = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
-					cur_x = (int32_t)I32FROMBUF(rxbuf,2);
-					cur_y = (int32_t)I32FROMBUF(rxbuf,6);
-				}
-				break;
-
-				case 131:
-				{
-					lidar.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
-					int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
-					int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
-
-					for(int i=0; i<180; i++)
+					if( (ret = tcpsock.receive(&rxbuf[total_rx], len-total_rx, received)) == sf::Socket::Done)
 					{
-						int x = (int8_t)rxbuf[10+2*i];
-						int y = (int8_t)rxbuf[10+2*i+1];
-						if(x==0 && y==0)
-						{
-							lidar.scan[i].valid = 0;
-							continue;
-						}
-						lidar.scan[i].valid = 1;
-						lidar.scan[i].x = x*40 + mid_x;
-						lidar.scan[i].y = y*40 + mid_y;
+						total_rx += received;
+			//			printf("    rx %d -> total %d\n", received, total_rx);
 					}
 				}
-				break;
 
-				case 132:
+
+				if(total_rx != len)
+					printf("error horror2  %d != %d\n", total_rx, len);
+
+				switch(msgid)
 				{
-					for(int i=0; i<10; i++)
+					case 130:
 					{
-						hwdbg[i] = (int32_t)I32FROMBUF(rxbuf,4*i);
+						cur_angle = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
+						cur_x = (int32_t)I32FROMBUF(rxbuf,2);
+						cur_y = (int32_t)I32FROMBUF(rxbuf,6);
 					}
-				}
-				break;
+					break;
 
-				case 133: // sonar points
-				{
-					for(int i=0; i<3; i++)
+					case 131:
 					{
-						if(rxbuf[0] & (1<<i))
+						lidar.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
+						int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
+						int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
+
+						for(int i=0; i<180; i++)
 						{
-							sonar.scan[i].valid = 1;
-							sonar.scan[i].x = (int32_t)I32FROMBUF(rxbuf,1+8*i);
-							sonar.scan[i].y = (int32_t)I32FROMBUF(rxbuf,5+8*i);
-						}
-						else
-						{
-							sonar.scan[i].valid = 0;
+							int x = (int8_t)rxbuf[10+2*i];
+							int y = (int8_t)rxbuf[10+2*i+1];
+							if(x==0 && y==0)
+							{
+								lidar.scan[i].valid = 0;
+								continue;
+							}
+							lidar.scan[i].valid = 1;
+							lidar.scan[i].x = x*40 + mid_x;
+							lidar.scan[i].y = y*40 + mid_y;
 						}
 					}
-				}
-				break;
+					break;
 
-				case 134: // Battery status
-				{
-					charging = rxbuf[0]&1;
-					charge_finished = rxbuf[0]&2;
-					bat_voltage = (float)(((int)rxbuf[1]<<8) | rxbuf[2])/1000.0;
-					bat_percentage = rxbuf[3];
-				}
-				break;
+					case 132:
+					{
+						for(int i=0; i<10; i++)
+						{
+							hwdbg[i] = (int32_t)I32FROMBUF(rxbuf,4*i);
+						}
+					}
+					break;
 
-				default:
-				break;
+					case 133: // sonar points
+					{
+						for(int i=0; i<3; i++)
+						{
+							if(rxbuf[0] & (1<<i))
+							{
+								sonar.scan[i].valid = 1;
+								sonar.scan[i].x = (int32_t)I32FROMBUF(rxbuf,1+8*i);
+								sonar.scan[i].y = (int32_t)I32FROMBUF(rxbuf,5+8*i);
+							}
+							else
+							{
+								sonar.scan[i].valid = 0;
+							}
+						}
+					}
+					break;
+
+					case 134: // Battery status
+					{
+						charging = rxbuf[0]&1;
+						charge_finished = rxbuf[0]&2;
+						bat_voltage = (float)(((int)rxbuf[1]<<8) | rxbuf[2])/1000.0;
+						bat_percentage = rxbuf[3];
+					}
+					break;
+
+					default:
+					break;
+				}
 			}
 		}
-
 
 		if(focus)
 		{
@@ -517,6 +781,28 @@ int main(int argc, char** argv)
 			}
 			else
 				right_click_on = false;
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num1))
+			{
+				dev_start_x = click_x; dev_start_y = click_y;
+			}
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num2))
+			{
+				dev_end_x = click_x; dev_end_y = click_y;
+			}
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num3))
+			{
+				if(!num3_pressed)
+				{
+					dev_search(win);
+					num3_pressed = true;
+				}
+			}
+			else
+				num3_pressed = false;
+
 
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
@@ -620,6 +906,8 @@ int main(int argc, char** argv)
 
 		draw_hwdbg(win);
 		draw_bat_status(win);
+
+		draw_dev(win);
 
 		win.display();
 
