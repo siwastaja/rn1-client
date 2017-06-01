@@ -155,7 +155,137 @@ void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g
 	circ.setFillColor(sf::Color(r,g,b));
 	circ.setPosition((x_mm+origin_x)/mm_per_pixel,(y_mm+origin_y)/mm_per_pixel);
 	win.draw(circ);
-	win.display();
+//	win.display();
+}
+
+int line_of_sight(search_unit_t* p1, search_unit_t* p2)
+{
+	const int robot_width /*plus margin*/ = 600/MAP_UNIT_W;
+
+	int sx = p1->loc.x;
+	int sy = p1->loc.y;
+
+	int dx = p2->loc.x - sx;
+	int dy = p2->loc.y - sy;
+
+//	printf("dx = %d, dy = %d ", dx, dy);
+//	if(abs(dx)>2 || abs(dy)>2)
+//		printf("!!!!!!!!!!!!!!!!!!");
+//	printf("\n");
+
+	int pageidx_x, pageidx_y, pageoffs_x, pageoffs_y;
+	int cur_x, cur_y;
+
+	if(abs(dx) >= abs(dy)) // Step in X direction
+	{
+		float dy_per_step = (float)dy/(float)dx;
+		if(dx >= 0)
+		{
+			for(int ix = 0; ix < dx; ix++)
+			{
+				cur_y = sy + dy_per_step*(float)ix;
+				cur_x = sx + ix;
+
+					page_coords_from_unit_coords(cur_x, cur_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
+
+					if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
+					{
+						printf("line of sight -- not allocated\n");
+						return 0;
+					}
+
+					if(world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL)
+					{
+						printf("line of sight -- a wall\n");
+						return 0;
+					}
+
+
+			}
+		}
+		else // dx < 0
+		{
+			for(int ix = 0; ix < -1*dx; ix++)
+			{
+				cur_y = sy - dy_per_step*(float)ix;
+				cur_x = sx - ix;
+
+					page_coords_from_unit_coords(cur_x, cur_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
+
+					if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
+					{
+						printf("line of sight -- not allocated\n");
+						return 0;
+					}
+
+					if(world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL)
+					{
+						printf("line of sight -- a wall\n");
+						return 0;
+					}
+
+
+			}
+		}
+
+	}
+	else // Step in Y direction
+	{
+		float dx_per_step = (float)dx/(float)dy;
+		if(dy >= 0)
+		{
+			for(int iy = 0; iy < dy; iy++)
+			{
+				cur_x = sx + dx_per_step*(float)iy;
+				cur_y = sy + iy;
+
+					page_coords_from_unit_coords(cur_x, cur_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
+
+					if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
+					{
+						printf("line of sight -- not allocated\n");
+						return 0;
+					}
+
+					if(world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL)
+					{
+						printf("line of sight -- a wall\n");
+						return 0;
+					}
+
+
+			}
+		}
+		else // dy < 0
+		{
+			for(int iy = 0; iy < -1*dy; iy++)
+			{
+				cur_x = sx - dx_per_step*(float)iy;
+				cur_y = sy - iy;
+
+					page_coords_from_unit_coords(cur_x, cur_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
+
+					if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
+					{
+						printf("line of sight -- not allocated\n");
+						return 0;
+					}
+
+					if(world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL)
+					{
+						printf("line of sight -- a wall\n");
+						return 0;
+					}
+
+
+			}
+		}
+
+	}
+
+	
+
+	return 1;
 }
 
 void dev_search(sf::RenderWindow& win)
@@ -210,6 +340,8 @@ void dev_search(sf::RenderWindow& win)
 				dev_draw_circle(win, p_recon->loc.x, p_recon->loc.y, 255,255,255);
 			}
 
+			win.display();
+
 			// Free all memory.
 			search_unit_t *p_del, *p_tmp;
 			HASH_ITER(hh, closed_set, p_del, p_tmp)
@@ -223,7 +355,7 @@ void dev_search(sf::RenderWindow& win)
 				free(p_del);
 			}
 
-			sleep(10);
+			sleep(5);
 			return;
 		}
 
@@ -240,6 +372,7 @@ void dev_search(sf::RenderWindow& win)
 			{
 				search_unit_t* found;
 				float new_g;
+				float new_g_from_parent;
 				if(xx == 0 && yy == 0) continue;
 
 				search_unit_t* p_neigh;
@@ -272,15 +405,15 @@ void dev_search(sf::RenderWindow& win)
 
 				HASH_FIND(hh, closed_set, &neigh_loc,sizeof(xy_t), found);
 				if(found)
-					continue; // ignore neighbor that's in closet_set.
+					continue; // ignore neighbor that's in closed_set.
 
 				// gscore for the neigbor: distance from the start to neighbor
 				// is current unit's g score plus distance to the neighbor.
-				new_g = p_cur->g;
-				if(xx == 0 || yy == 0)
-					new_g += 1.0;
-				else
-					new_g += sqrt(2.0);
+				new_g = p_cur->g + sqrt((float)(sq(p_cur->loc.x-neigh_loc.x) + sq(p_cur->loc.y-neigh_loc.y)));
+
+				// for theta*:
+				if(p_cur->parent)
+					new_g_from_parent = p_cur->parent->g + sqrt((float)(sq(p_cur->parent->loc.x-neigh_loc.x) + sq(p_cur->parent->loc.y-neigh_loc.y)));
 
 				HASH_FIND(hh, open_set, &neigh_loc,sizeof(xy_t), p_neigh);
 				if(!p_neigh)
@@ -291,15 +424,30 @@ void dev_search(sf::RenderWindow& win)
 					HASH_ADD(hh, open_set, loc,sizeof(xy_t), p_neigh);
 					dev_draw_circle(win, p_cur->loc.x, p_cur->loc.y, 200,0,0);
 
+					p_neigh->parent = p_cur;
+					p_neigh->g = new_g;
+					p_neigh->f = new_g + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
+
 				}
-				else /*found it*/ if(new_g >= p_neigh->g)
+				else
 				{
-					continue; // Neighbor was in open set, but it already has better score
+					if(p_cur->parent && line_of_sight(p_cur->parent, p_neigh)) // Theta* style near-optimum (probably shortest) path
+					{
+						if(new_g_from_parent < p_neigh->g)
+						{
+							p_neigh->parent = p_cur->parent;
+							p_neigh->g = new_g_from_parent;
+							p_neigh->f = new_g_from_parent + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
+						}
+					}
+					else if(new_g < p_neigh->g)  // A* style path shorter than before.
+					{
+						p_neigh->parent = p_cur;
+						p_neigh->g = new_g;
+						p_neigh->f = new_g + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
+					}
 				}
 
-				p_neigh->parent = p_cur;
-				p_neigh->g = new_g;
-				p_neigh->f = new_g + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
 
 				OUT_OF_BOUNDS: ;
 
