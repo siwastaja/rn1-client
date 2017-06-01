@@ -44,6 +44,10 @@ double robot_ys = 524.0;
 double lidar_xoffs = 120.0;
 double lidar_yoffs = 0.0;
 
+int charging;
+int charge_finished;
+float bat_voltage;
+int bat_percentage;
 
 void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
 {
@@ -69,6 +73,72 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	if(!page)
 		return;
 
+	static uint8_t pixels[MAP_PAGE_W*MAP_PAGE_W*4];
+
+
+/*
+				sf::RectangleShape rect(sf::Vector2f(MAP_UNIT_W/mm_per_pixel,MAP_UNIT_W/mm_per_pixel));
+				rect.setPosition((startx+x*MAP_UNIT_W)/mm_per_pixel, (starty+y*MAP_UNIT_W)/mm_per_pixel);
+				if(page->units[x][y].result & UNIT_WALL)
+					rect.setFillColor(sf::Color(60,20,0));
+				else if(page->units[x][y].result & UNIT_ITEM)
+					rect.setFillColor(sf::Color(0,100,200));
+				else
+					rect.setFillColor(sf::Color(255,240,190)); // mapped
+
+				win.draw(rect);
+*/
+
+	for(int x = 0; x < MAP_PAGE_W; x++)
+	{
+		for(int y = 0; y < MAP_PAGE_W; y++)
+		{
+
+			int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
+			if(alpha > 255) alpha=255;
+			if(page->units[x][y].result & UNIT_WALL)
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 60;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 20;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
+			}
+			else if(page->units[x][y].result & UNIT_ITEM)
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 200;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
+			}
+			else if(page->units[x][y].result & UNIT_MAPPED)
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 240;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 190;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
+			}
+			else
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 220;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 240;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
+			}
+		}
+	}
+
+	float scale = ((float)MAP_PAGE_W_MM/mm_per_pixel)/256.0f;
+
+	sf::Texture t;
+	t.create(256, 256);
+	t.setSmooth(false);
+	t.update(pixels);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setPosition((startx)/mm_per_pixel, (starty)/mm_per_pixel);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	win.draw(sprite);
+
 	sf::RectangleShape b1(sf::Vector2f(MAP_PAGE_W_MM/mm_per_pixel, 1));
 	b1.setPosition((startx+0*MAP_UNIT_W)/mm_per_pixel, (starty+0*MAP_UNIT_W)/mm_per_pixel);
 	b1.setFillColor(sf::Color(0,0,0,64));
@@ -89,25 +159,6 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	b4.setFillColor(sf::Color(0,0,0,64));
 	win.draw(b4);
 
-
-	for(int x = 0; x < MAP_PAGE_W; x++)
-	{
-		for(int y = 0; y < MAP_PAGE_W; y++)
-		{
-			if(page->units[x][y].result)
-			{
-				sf::RectangleShape rect(sf::Vector2f(MAP_UNIT_W/mm_per_pixel,MAP_UNIT_W/mm_per_pixel));
-				//rect.setOrigin(0.0,0.0);
-				rect.setPosition((startx+x*MAP_UNIT_W)/mm_per_pixel, (starty+y*MAP_UNIT_W)/mm_per_pixel);
-				if(page->units[x][y].result & UNIT_WALL)
-					rect.setFillColor(sf::Color(60,20,0));
-				else
-					rect.setFillColor(sf::Color(0,100,200));
-
-				win.draw(rect);
-			}
-		}
-	}
 }
 
 int32_t hwdbg[10];
@@ -124,6 +175,43 @@ void draw_hwdbg(sf::RenderWindow& win)
 		sprintf(buf, "dbg[%2i] = %11d (%08x)", i, hwdbg[i], hwdbg[i]);
 		t.setString(buf);
 		t.setPosition(10,screen_y-170 + 15*i);
+		win.draw(t);
+	}
+}
+
+void draw_bat_status(sf::RenderWindow& win)
+{
+	sf::Text t;
+	char buf[256];
+	t.setFont(arial);
+
+	sprintf(buf, "BATT %2.2f V (%d%%)", bat_voltage, bat_percentage);
+	t.setString(buf);
+	t.setCharacterSize(18);
+	float vlevel = (float)bat_percentage/100.0;
+	int r = (1.0-vlevel)*250.0;
+	int g = vlevel*250.0;
+	if(r > 250) r = 250; if(r<0) r=0;
+	if(g > 250) g = 250; if(g<0) g=0;
+	t.setColor(sf::Color(r,g,0));
+	t.setPosition(screen_x-180,screen_y-40);
+	win.draw(t);
+
+	if(charging)
+	{
+		t.setString("charging");
+		t.setCharacterSize(16);
+		t.setColor(sf::Color(200,110,0));
+		t.setPosition(screen_x-180,screen_y-80);
+		win.draw(t);
+	}
+
+	if(charge_finished)
+	{
+		t.setString("charge finished");
+		t.setCharacterSize(16);
+		t.setColor(sf::Color(60,255,60));
+		t.setPosition(screen_x-220,screen_y-60);
 		win.draw(t);
 	}
 }
@@ -174,7 +262,7 @@ void draw_robot(sf::RenderWindow& win)
 	}
 }
 
-typedef struct
+/*typedef struct
 {
 	int32_t ang; // int32_t range --> -180..+180 deg; let it overflow freely. 1 unit = 83.81903171539 ndeg
 	int32_t x;   // in mm
@@ -187,16 +275,22 @@ typedef struct
 	int32_t x;   // in mm
 	int32_t y;
 } point_t;
-
+*/
 typedef struct
 {
 	pos_t robot_pos;
 	point_t scan[180];
-} lidar_scan_t;
+} client_lidar_scan_t;
 
-lidar_scan_t lidar;
+typedef struct
+{
+	point_t scan[3];
+} client_sonar_scan_t;
 
-void draw_lidar(sf::RenderWindow& win, lidar_scan_t* lid)
+client_lidar_scan_t lidar;
+client_sonar_scan_t sonar;
+
+void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 {
 	for(int i=0; i < 180; i++)
 	{
@@ -209,6 +303,21 @@ void draw_lidar(sf::RenderWindow& win, lidar_scan_t* lid)
 		win.draw(rect);
 	}
 }
+
+void draw_sonar(sf::RenderWindow& win, client_sonar_scan_t* son)
+{
+	for(int i=0; i < 3; i++)
+	{
+		if(!son->scan[i].valid) continue;
+
+		sf::RectangleShape rect(sf::Vector2f(6,6));
+		rect.setOrigin(3,3);
+		rect.setPosition((son->scan[i].x+origin_x)/mm_per_pixel, (son->scan[i].y+origin_y)/mm_per_pixel);
+		rect.setFillColor(sf::Color(0, 0, 70, 90));
+		win.draw(rect);
+	}
+}
+
 
 sf::IpAddress serv_ip;
 unsigned short serv_port;
@@ -347,6 +456,33 @@ int main(int argc, char** argv)
 				}
 				break;
 
+				case 133: // sonar points
+				{
+					for(int i=0; i<3; i++)
+					{
+						if(rxbuf[0] & (1<<i))
+						{
+							sonar.scan[i].valid = 1;
+							sonar.scan[i].x = (int32_t)I32FROMBUF(rxbuf,1+8*i);
+							sonar.scan[i].y = (int32_t)I32FROMBUF(rxbuf,5+8*i);
+						}
+						else
+						{
+							sonar.scan[i].valid = 0;
+						}
+					}
+				}
+				break;
+
+				case 134: // Battery status
+				{
+					charging = rxbuf[0]&1;
+					charge_finished = rxbuf[0]&2;
+					bat_voltage = (float)(((int)rxbuf[1]<<8) | rxbuf[2])/1000.0;
+					bat_percentage = rxbuf[3];
+				}
+				break;
+
 				default:
 				break;
 			}
@@ -480,8 +616,10 @@ int main(int argc, char** argv)
 		draw_robot(win);
 
 		draw_lidar(win, &lidar);
+		draw_sonar(win, &sonar);
 
 		draw_hwdbg(win);
+		draw_bat_status(win);
 
 		win.display();
 
