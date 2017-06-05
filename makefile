@@ -16,4 +16,4 @@ rn1client: $(OBJ)
 	$(LD) $(LDFLAGS) -o rn1client $^ -lm -lsfml-network -lsfml-graphics -lsfml-window -lsfml-system
 
 e:
-	gedit --new-window rn1client.cc
+	gedit --new-window rn1client.cc &
