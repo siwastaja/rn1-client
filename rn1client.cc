@@ -201,6 +201,8 @@ uint8_t robot_shapes[32][ROBOT_SHAPE_WINDOW][ROBOT_SHAPE_WINDOW];
 int los_dbg;
 void draw_map(sf::RenderWindow& win);
 
+int obstacle_limit = 1;
+
 int check_hit(sf::RenderWindow& win, int x, int y, int direction)
 {
 	if(los_dbg)
@@ -242,7 +244,7 @@ int check_hit(sf::RenderWindow& win, int x, int y, int direction)
 		win.display();
 	}
 
-	if(num_obstacles > 2)
+	if(num_obstacles > obstacle_limit)
 		return 1;
 
 	return 0;
@@ -440,6 +442,8 @@ void draw_triangle(int a_idx, int x0, int y0, int x1, int y1, int x2, int y2)
 
 #define TODEG(x) ((360.0*x)/(2.0*M_PI))
 
+int tight_shapes = 0;
+
 void draw_robot_shape(int a_idx, float ang)
 {
 	float o_x = (ROBOT_SHAPE_WINDOW/2.0)*(float)MAP_UNIT_W;
@@ -449,8 +453,18 @@ void draw_robot_shape(int a_idx, float ang)
 //	float robot_xs = (524.0 + 20.0);
 //	float robot_ys = (480.0 + 20.0);
 
-	float robot_xs = (524.0 + 0.0);
-	float robot_ys = (480.0 + 0.0);
+	float robot_xs, robot_ys;
+
+	if(tight_shapes)
+	{
+		robot_xs = (524.0 + 0.0);
+		robot_ys = (480.0 + 0.0);
+	}
+	else
+	{
+		robot_xs = (524.0 + 80.0);
+		robot_ys = (480.0 + 160.0);
+	}
 
 	float middle_xoffs = -120.0; // from o_x, o_y to the robot middle point.
 	float middle_yoffs = -0.0;
@@ -553,6 +567,20 @@ void dev_gen_robot_shapes()
 
 }
 
+void normal_search_mode()
+{
+	obstacle_limit = 1;
+	tight_shapes = 0;
+	dev_gen_robot_shapes();	
+}
+
+void tight_search_mode()
+{
+	obstacle_limit = 2;
+	tight_shapes = 1;
+	dev_gen_robot_shapes();	
+}
+
 search_unit_t* closed_set = NULL;
 search_unit_t* open_set = NULL;
 
@@ -640,6 +668,12 @@ int dev_search(sf::RenderWindow& win, route_unit_t **route, float start_ang, int
 	while(HASH_CNT(hh, open_set) > 0)
 	{
 		cnt++;
+
+		if(cnt > 200000)
+		{
+			printf("Giving up at cnt = %d\n", cnt);
+			return 3;
+		}
 
 		// Find the lowest f score from open_set.
 		search_unit_t* p_cur;
@@ -909,7 +943,7 @@ int dev_search(sf::RenderWindow& win, route_unit_t **route, float start_ang, int
 	
 	printf("Route not found, cnt = %d\n", cnt);
 
-	if(cnt < 150)
+	if(cnt < 200)
 	{
 		return 1;
 	}
@@ -923,9 +957,9 @@ int dev_search(sf::RenderWindow& win, route_unit_t **route, float start_ang, int
 int dev_search2(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
 {
 
-#define SRCH_NUM_A 9
+#define SRCH_NUM_A 11
 	static const int a_s[SRCH_NUM_A] = 
-	{	0,	-10,	10,	-20,	20,	-30,	30,	-40,	40	};
+	{	0,	-10,	10,	-20,	20,	-30,	30,	-40,	40,	-50,	50	};
 
 
 #define SRCH_NUM_BACK 9
@@ -935,7 +969,11 @@ int dev_search2(sf::RenderWindow& win, route_unit_t **route, float start_ang, in
 
 	// If going forward doesn't work out from the beginning, try backing off slightly.
 
-	if(dev_search(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm) == 1)
+	int ret = dev_search(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm);
+	if(ret == 0)
+		return 0;
+
+	if(ret == 1)
 	{
 		printf("Search fails in the start - trying to back off.\n");
 
@@ -962,9 +1000,8 @@ int dev_search2(sf::RenderWindow& win, route_unit_t **route, float start_ang, in
 				}
 				else
 				{
-					printf("searching again...\n");
-
-					if(dev_search(win, route, new_ang, new_x, new_y, end_x_mm, end_y_mm) != 1)
+					int ret = dev_search(win, route, new_ang, new_x, new_y, end_x_mm, end_y_mm);
+					if(ret == 0)
 					{
 						printf("Search succeeded, stopping back-off search.\n");
 
@@ -973,20 +1010,44 @@ int dev_search2(sf::RenderWindow& win, route_unit_t **route, float start_ang, in
 						point->backmode = 1;			
 						DL_PREPEND(*route, point);
 
-						goto BACK_OFF_STOP;
+						return 0;
+					}
+					else if(ret > 1)
+					{
+						printf("Search failed later than in the beginning, stopping back-off search.\n");
+						return 2;
+
 					}
 				}
 
 			}
 		}
-
-		BACK_OFF_STOP: ;
-
+		return 1;
 	}
+
+	return 3;
 
 }
 
 
+int dev_search3(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
+{
+	normal_search_mode();
+	printf("Searching with normal limits...\n");
+	if(dev_search2(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm))
+	{
+		printf("Search failed - retrying with tighter limits.\n");
+		tight_search_mode();
+		if(dev_search2(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm))
+		{
+			printf("There is no route.\n");
+			return 1;
+		}
+	}
+
+	return 0;
+
+}
 
 
 void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
@@ -1528,7 +1589,7 @@ int main(int argc, char** argv)
 			{
 				if(!num3_pressed)
 				{
-					dev_search2(win, &some_route, 0, dev_start_x, dev_start_y, dev_end_x, dev_end_y);
+					dev_search3(win, &some_route, 0, dev_start_x, dev_start_y, dev_end_x, dev_end_y);
 					p_cur_step = some_route;
 					num3_pressed = true;
 				}
@@ -1541,7 +1602,7 @@ int main(int argc, char** argv)
 			{
 				if(!f12_pressed)
 				{
-					dev_search2(win, &some_route, 2*M_PI*cur_angle/360.0, cur_x, cur_y, dev_end_x, dev_end_y);
+					dev_search3(win, &some_route, 2*M_PI*cur_angle/360.0, cur_x, cur_y, dev_end_x, dev_end_y);
 					p_cur_step = some_route;
 					f12_pressed = true;
 				}
