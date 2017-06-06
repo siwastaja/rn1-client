@@ -31,7 +31,7 @@ sf::Font arial;
 //int screen_y = 900;
 
 int screen_x = 1200;
-int screen_y = 1000; //700;
+int screen_y = 700; //700;
 
 double origin_x = 0;
 double origin_y = 0;
@@ -41,7 +41,7 @@ double cur_x = 0.0;
 double cur_y = 0.0;
 
 bool dest_clicked;
-double dest_x, dest_y, dest_angle;
+double dest_x, dest_y, dest_angle, dest_backmode;
 
 double robot_xs = 480.0;
 double robot_ys = 524.0;
@@ -148,6 +148,7 @@ typedef struct search_unit_T
 typedef struct route_unit_T
 {
 	xy_t loc;
+	int backmode;
 	route_unit_T* prev;
 	route_unit_T* next;
 } route_unit_t;
@@ -175,8 +176,6 @@ void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g
 
 	circ.setPosition((x_mm+origin_x+MAP_UNIT_W/2)/mm_per_pixel,(y_mm+origin_y+MAP_UNIT_W/2)/mm_per_pixel);
 	win.draw(circ);
-	win.display();
-
 
 	if(dir >= 0)
 	{
@@ -195,99 +194,6 @@ void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g
 	}
 
 }
-
-/*
-int test_line_of_sight_blocked(int cur_x, int cur_y)
-{
-	int pageidx_x, pageidx_y, pageoffs_x, pageoffs_y;
-	page_coords_from_unit_coords(cur_x, cur_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
-
-	if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
-	{
-		printf("line of sight -- not allocated\n");
-		return 1;
-	}
-
-	if(world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL)
-	{
-//		printf("line of sight -- a wall\n");
-		return 1;
-	}
-
-	return 0;
-}
-
-int line_of_sight(search_unit_t* p1, search_unit_t* p2)
-{
-	int sx = p1->loc.x;
-	int sy = p1->loc.y;
-
-	int dx = p2->loc.x - sx;
-	int dy = p2->loc.y - sy;
-
-
-	int cur_x, cur_y;
-
-	if(abs(dx) >= abs(dy)) // Step in X direction
-	{
-		float dy_per_step = (float)dy/(float)dx;
-		if(dx >= 0)
-		{
-			for(int ix = 0; ix < dx; ix++)
-			{
-				cur_y = sy + dy_per_step*(float)ix;
-				cur_x = sx + ix;
-
-				if(test_line_of_sight_blocked(cur_x, cur_y))
-					return 0;
-			}
-		}
-		else // dx < 0
-		{
-			for(int ix = 0; ix < -1*dx; ix++)
-			{
-				cur_y = sy - dy_per_step*(float)ix;
-				cur_x = sx - ix;
-
-				if(test_line_of_sight_blocked(cur_x, cur_y))
-					return 0;
-			}
-		}
-
-	}
-	else // Step in Y direction
-	{
-		float dx_per_step = (float)dx/(float)dy;
-		if(dy >= 0)
-		{
-			for(int iy = 0; iy < dy; iy++)
-			{
-				cur_x = sx + dx_per_step*(float)iy;
-				cur_y = sy + iy;
-
-				if(test_line_of_sight_blocked(cur_x, cur_y))
-					return 0;
-			}
-		}
-		else // dy < 0
-		{
-			for(int iy = 0; iy < -1*dy; iy++)
-			{
-				cur_x = sx - dx_per_step*(float)iy;
-				cur_y = sy - iy;
-
-				if(test_line_of_sight_blocked(cur_x, cur_y))
-					return 0;
-			}
-		}
-
-	}
-
-	
-
-	return 1;
-}
-*/
 
 #define ROBOT_SHAPE_WINDOW 32
 uint8_t robot_shapes[32][ROBOT_SHAPE_WINDOW][ROBOT_SHAPE_WINDOW];
@@ -342,6 +248,53 @@ int check_hit(sf::RenderWindow& win, int x, int y, int direction)
 	return 0;
 }
 
+int test_robot_turn(sf::RenderWindow& win, int x, int y, float start, float end)
+{
+	int cw = 0;
+
+	while(start >= 2.0*M_PI) start -= 2.0*M_PI;
+	while(start < 0.0) start += 2.0*M_PI;
+
+	while(end >= 2.0*M_PI) end -= 2.0*M_PI;
+	while(end < 0.0) end += 2.0*M_PI;
+
+	// Calc for CCW (positive angle):
+	float da = end - start;
+	while(da >= 2.0*M_PI) da -= 2.0*M_PI;
+	while(da < 0.0) da += 2.0*M_PI;
+
+	if(da > M_PI)
+	{
+		// CCW wasn't fine, turn CW
+		cw = 1;
+		da = start - end;
+		while(da >= 2.0*M_PI) da -= 2.0*M_PI;
+		while(da < 0.0) da += 2.0*M_PI;
+	}
+
+	int dir_cur = (start/(2.0*M_PI) * 32.0);
+	int dir_end = (end/(2.0*M_PI) * 32.0);
+
+//	printf("test_robot_turn()  start=%.4f  end=%.4f  da=%.4f,  cw=%d\n", start, end, da, cw);
+
+	while(dir_cur != dir_end)
+	{
+//		printf("test_robot_turn(): dir_cur = %d, dir_end=%d\n", dir_cur, dir_end);
+
+		if(check_hit(win, x, y, dir_cur))
+			return 0;
+
+		if(cw) dir_cur--; else dir_cur++;
+
+		if(dir_cur < 0) dir_cur = 31;
+		else if(dir_cur > 31) dir_cur = 0;
+
+	}
+
+	return 1;
+}
+
+
 int line_of_sight(sf::RenderWindow& win, xy_t p1, xy_t p2)
 {
 	int dx = p2.x - p1.x;
@@ -359,7 +312,7 @@ int line_of_sight(sf::RenderWindow& win, xy_t p1, xy_t p2)
 	int dir = (ang/(2.0*M_PI) * 32.0)+0.5;
 
 
-	printf("ang = %.4f  dir = %d \n", ang, dir);
+//	printf("ang = %.4f  dir = %d \n", ang, dir);
 
 	while(1)
 	{
@@ -497,7 +450,7 @@ void draw_robot_shape(int a_idx, float ang)
 //	float robot_ys = (480.0 + 20.0);
 
 	float robot_xs = (524.0 + 0.0);
-	float robot_ys = (380.0 + 0.0);
+	float robot_ys = (480.0 + 0.0);
 
 	float middle_xoffs = -120.0; // from o_x, o_y to the robot middle point.
 	float middle_yoffs = -0.0;
@@ -618,18 +571,56 @@ void dev_draw_sets(sf::RenderWindow& win)
 }
 
 route_unit_t *some_route = NULL;
+route_unit_t *p_cur_step = NULL;
 
-void dev_search(sf::RenderWindow& win, route_unit_t *route)
+void clear_route(route_unit_t **route)
 {
-	win.setFramerateLimit(0);
+	route_unit_t *elt, *tmp;
+	DL_FOREACH_SAFE(*route,elt,tmp)
+	{
+		DL_DELETE(*route,elt);
+		free(elt);
+	}
+	*route = NULL;
+}
 
-	route = NULL;
+void draw_route(sf::RenderWindow& win, route_unit_t **route, route_unit_t *cur)
+{
+
+	if(!route)
+		return;
+
+	route_unit_t *rt;
+	DL_FOREACH(*route, rt)
+	{
+		if(rt->backmode)
+			dev_draw_circle(win, rt->loc.x, rt->loc.y, 130,20,40,-123);
+		else
+			dev_draw_circle(win, rt->loc.x, rt->loc.y, 20,130,40,-123);
+	}
+
+	if(cur)
+	{
+		if(cur->backmode)
+			dev_draw_circle(win, cur->loc.x, cur->loc.y, 255,20,40,-123);
+		else
+			dev_draw_circle(win, cur->loc.x, cur->loc.y, 20,255,40,-123);
+	}
+}
+
+int dev_search(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
+{
+	clear_route(route);
 
 	int s_x, s_y, e_x, e_y;
-	unit_coords(dev_start_x, dev_start_y, &s_x, &s_y);
-	unit_coords(dev_end_x, dev_end_y, &e_x, &e_y);
+	unit_coords(start_x_mm, start_y_mm, &s_x, &s_y);
+	unit_coords(end_x_mm, end_y_mm, &e_x, &e_y);
 
-	printf("Start %d,%d,  end %d,%d\n", s_x, s_y, e_x, e_y);
+	while(start_ang >= 2.0*M_PI) start_ang -= 2.0*M_PI;
+	while(start_ang < 0.0) start_ang += 2.0*M_PI;
+	int start_dir = (start_ang/(2.0*M_PI) * 32.0)+0.5;
+
+	printf("Start %d,%d,  end %d,%d  start_ang=%f  start_dir=%d\n", s_x, s_y, e_x, e_y, start_ang, start_dir);
 
 
 	search_unit_t* p_start = (search_unit_t*) malloc(sizeof(search_unit_t));
@@ -637,14 +628,19 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 
 	p_start->loc.x = s_x;
 	p_start->loc.y = s_y;
+	p_start->direction = start_dir;
 	p_start->parent = NULL;
 	// g = 0
 	p_start->f = sqrt((float)(sq(e_x-s_x) + sq(e_y-s_y)));
 
 	HASH_ADD(hh, open_set, loc,sizeof(xy_t), p_start);
 
+	int cnt = 0;
+
 	while(HASH_CNT(hh, open_set) > 0)
 	{
+		cnt++;
+
 		// Find the lowest f score from open_set.
 		search_unit_t* p_cur;
 		float lowest_f = 2.0*MAX_F;
@@ -659,6 +655,9 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 
 		if(p_cur->loc.x == e_x && p_cur->loc.y == e_y)
 		{
+
+			printf("Solution found, cnt = %d\n", cnt);
+
 			// solution found.
 
 			// Reconstruct the path
@@ -666,20 +665,21 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 				win.clear(sf::Color(200,220,240));
 				draw_map(win);
 				dev_draw_sets(win);
-				win.display();
+//				win.display();
 
 
 			search_unit_t* p_recon = p_cur;
 			while( (p_recon = p_recon->parent) )
 			{
 				dev_draw_circle(win, p_recon->loc.x, p_recon->loc.y, 255,255,255,-123);
-				win.display(); usleep(100000);
+//				win.display(); usleep(100000);
 				route_unit_t* point = malloc(sizeof(route_unit_t));
-				point->loc.x = p_recon->loc.x; point->loc.y = p_recon->loc.y;				
-				DL_PREPEND(route, point);
+				point->loc.x = p_recon->loc.x; point->loc.y = p_recon->loc.y;
+				point->backmode = 0;
+				DL_PREPEND(*route, point);
 			}
 
-			route_unit_t *rt = route;
+			route_unit_t *rt = *route;
 			while(1)
 			{
 				if(rt->next && rt->next->next)
@@ -688,11 +688,11 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 					if(line_of_sight(win,rt->loc, rt->next->next->loc))
 					{
 						dev_draw_circle(win, rt->next->loc.x, rt->next->loc.y, 255,128,128,-123);
-						win.display(); usleep(200000);
+//						win.display(); usleep(200000);
 
-						printf("Deleting.\n");
+//						printf("Deleting.\n");
 						route_unit_t *tmp = rt->next;
-						DL_DELETE(route, tmp);
+						DL_DELETE(*route, tmp);
 						free(tmp);
 					}
 					else
@@ -704,7 +704,13 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 
 			los_dbg = 0;
 
-			DL_FOREACH(route, rt)
+			// Remove the first, because it's the starting point.
+			route_unit_t *tm = *route;
+			DL_DELETE(*route, tm);
+			free(tm);
+
+
+			DL_FOREACH(*route, rt)
 			{
 				dev_draw_circle(win, rt->loc.x, rt->loc.y, 255,255,0,-123);
 				win.display(); usleep(200000);
@@ -727,10 +733,10 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 
 				sf::Event event;
 				while (win.pollEvent(event)) ;
-				while(!sf::Keyboard::isKeyPressed(sf::Keyboard::Return)) ;
+				while(!sf::Keyboard::isKeyPressed(sf::Keyboard::F1)) ;
 
 
-			return;
+			return 0;
 		}
 
 		// move from open to closed:
@@ -756,6 +762,7 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 				HASH_FIND(hh, closed_set, &neigh_loc,sizeof(xy_t), found);
 				if(found)
 					continue; // ignore neighbor that's in closed_set.
+
 
 				// gscore for the neigbor: distance from the start to neighbor
 				// is current unit's g score plus distance to the neighbor.
@@ -794,9 +801,8 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 					direction_from_neigh_parent = dir_parent;
 				}
 
-				
 				int direction = 0;
-				if(!direction_from_cur_parent && !direction_from_neigh_parent)  // if the previous two don't work out.
+				if(direction_from_cur_parent < 0 && direction_from_neigh_parent < 0)  // if the previous two don't work out.
 				{
 					if(xx==1 && yy==1)        direction = 1*4; 
 					else if(xx==0 && yy==1)   direction = 2*4; 
@@ -808,8 +814,23 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 				}
 				else
 				{
-					direction = direction_from_cur_parent;
+					if(direction_from_cur_parent >= 0)
+						direction = direction_from_cur_parent;
+					else
+						direction = direction_from_neigh_parent;
 				}
+
+
+				// If this is the first neighbor search, test if the robot can turn:
+				if(cnt == 1)
+				{
+					if(!test_robot_turn(win, p_cur->loc.x, p_cur->loc.y, start_ang, ((float)direction/32.0)*2.0*M_PI*direction))
+					{
+						printf("Robot cannot turn to direction %d\n", direction);
+						continue;
+					}
+				}
+
 
 
 //				dev_draw_circle(win, neigh_loc.x, neigh_loc.y, 255,255,255, direction);
@@ -874,16 +895,6 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 		}		
 	}
 
-
-	win.clear(sf::Color(200,220,240));
-	draw_map(win);
-	dev_draw_sets(win);
-
-	sf::Event event;
-	while (win.pollEvent(event)) ;
-	while(!sf::Keyboard::isKeyPressed(sf::Keyboard::Return)) ;
-
-
 	search_unit_t *p_del, *p_tmp;
 	HASH_ITER(hh, closed_set, p_del, p_tmp)
 	{
@@ -896,10 +907,86 @@ void dev_search(sf::RenderWindow& win, route_unit_t *route)
 		free(p_del);
 	}
 	
-	return;
+	printf("Route not found, cnt = %d\n", cnt);
+
+	if(cnt < 150)
+	{
+		return 1;
+	}
+
+	return 2;
 	// Failure.
 
 }
+
+
+int dev_search2(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
+{
+
+#define SRCH_NUM_A 9
+	static const int a_s[SRCH_NUM_A] = 
+	{	0,	-10,	10,	-20,	20,	-30,	30,	-40,	40	};
+
+
+#define SRCH_NUM_BACK 9
+	static const int b_s[SRCH_NUM_BACK] = 
+	{	-80,	-40,	-120,	-160,	-200,	-280,	-360,	-440,	-520	};
+
+
+	// If going forward doesn't work out from the beginning, try backing off slightly.
+
+	if(dev_search(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm) == 1)
+	{
+		printf("Search fails in the start - trying to back off.\n");
+
+		for(int a_idx = 0; a_idx < SRCH_NUM_A; a_idx++)
+		{
+			for(int back_idx = 0; back_idx < SRCH_NUM_BACK; back_idx++)
+			{
+				float new_ang = start_ang + (2.0*M_PI*(float)a_s[a_idx]/360.0);
+				while(new_ang >= 2.0*M_PI) new_ang -= 2.0*M_PI;
+				while(new_ang < 0.0) new_ang += 2.0*M_PI;
+				int new_x = start_x_mm + cos(new_ang)*b_s[back_idx];
+				int new_y = start_y_mm + sin(new_ang)*b_s[back_idx];
+
+				int dir = (new_ang/(2.0*M_PI) * 32.0)+0.5;
+
+				int new_x_units, new_y_units;
+				unit_coords(new_x, new_y, &new_x_units, &new_y_units);
+
+				printf("Back off ang=%.2f deg, mm = %d  -> new start = (%d, %d) --> ", TODEG(new_ang), b_s[back_idx], new_x_units, new_y_units);
+
+				if(check_hit(win, new_x_units, new_y_units, dir))
+				{
+					printf("backing off hits the wall.\n");
+				}
+				else
+				{
+					printf("searching again...\n");
+
+					if(dev_search(win, route, new_ang, new_x, new_y, end_x_mm, end_y_mm) != 1)
+					{
+						printf("Search succeeded, stopping back-off search.\n");
+
+						route_unit_t* point = malloc(sizeof(route_unit_t));
+						point->loc.x = new_x_units; point->loc.y = new_y_units;
+						point->backmode = 1;			
+						DL_PREPEND(*route, point);
+
+						goto BACK_OFF_STOP;
+					}
+				}
+
+			}
+		}
+
+		BACK_OFF_STOP: ;
+
+	}
+
+}
+
+
 
 
 void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
@@ -1087,7 +1174,13 @@ void draw_robot(sf::RenderWindow& win)
 
 	if(dest_clicked)
 	{
-		r.setFillColor(sf::Color(0,255,0,128));
+		if(dest_backmode == 1)
+			r.setFillColor(sf::Color(255,0,0,128));
+		else if(dest_backmode == 2)
+			r.setFillColor(sf::Color(255,255,0,128));
+		else
+			r.setFillColor(sf::Color(0,255,0,128));
+
 		r.setRotation(cur_angle+dest_angle);
 		r.setPosition((origin_x+dest_x)/mm_per_pixel,(origin_y+dest_y)/mm_per_pixel);
 		win.draw(r);
@@ -1160,8 +1253,11 @@ int main(int argc, char** argv)
 {
 	bool f1_pressed = false;
 	bool f5_pressed = false;
+	bool f12_pressed = false;
 	bool return_pressed = false;
 	bool num3_pressed = false;
+	bool num4_pressed = false;
+	bool num5_pressed = false;
 	int focus = 1;
 	int online = 1;
 
@@ -1343,7 +1439,56 @@ int main(int argc, char** argv)
 			{
 				dest_clicked = true;
 				dest_x = click_x; dest_y = click_y;
+				dest_backmode = 2;
 			}
+
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num5))
+			{
+				if(!num5_pressed)
+				{
+					if(p_cur_step != NULL)
+					{
+						dest_clicked = true;
+
+						int mm_x, mm_y;
+						mm_from_unit_coords(p_cur_step->loc.x, p_cur_step->loc.y, &mm_x, &mm_y);
+
+						dest_x = mm_x;
+						dest_y = mm_y;
+						dest_backmode = p_cur_step->backmode;
+						if(p_cur_step->next != NULL)
+							p_cur_step = p_cur_step->next;
+					}
+					num5_pressed = true;
+				}
+			}
+			else
+				num5_pressed = false;
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num4))
+			{
+				if(!num4_pressed)
+				{
+					if(p_cur_step != NULL)
+					{
+						dest_clicked = true;
+
+						int mm_x, mm_y;
+						mm_from_unit_coords(p_cur_step->loc.x, p_cur_step->loc.y, &mm_x, &mm_y);
+
+						dest_x = mm_x;
+						dest_y = mm_y;
+						dest_backmode = p_cur_step->backmode;
+						if(p_cur_step->prev != NULL)
+							p_cur_step = p_cur_step->prev;
+					}
+					num4_pressed = true;
+				}
+			}
+			else
+				num4_pressed = false;
+
 
 			if(sf::Mouse::isButtonPressed(sf::Mouse::Right))
 			{
@@ -1372,16 +1517,37 @@ int main(int argc, char** argv)
 				dev_end_x = click_x; dev_end_y = click_y;
 			}
 
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num6))
+			{
+				dev_start_x = cur_x; dev_start_y = cur_y;
+			}
+
+
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num3))
 			{
 				if(!num3_pressed)
 				{
-					dev_search(win, some_route);
+					dev_search2(win, &some_route, 0, dev_start_x, dev_start_y, dev_end_x, dev_end_y);
+					p_cur_step = some_route;
 					num3_pressed = true;
 				}
 			}
 			else
 				num3_pressed = false;
+
+
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F12))
+			{
+				if(!f12_pressed)
+				{
+					dev_search2(win, &some_route, 2*M_PI*cur_angle/360.0, cur_x, cur_y, dev_end_x, dev_end_y);
+					p_cur_step = some_route;
+					f12_pressed = true;
+				}
+			}
+			else
+				f12_pressed = false;
 
 
 
@@ -1453,9 +1619,9 @@ int main(int argc, char** argv)
 					{
 						int x = dest_x; int y = dest_y;
 
-						uint8_t test[11] = {55, 0, 8,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
-							(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
-						if(tcpsock.send(test, 11) != sf::Socket::Done)
+						uint8_t test[12] = {55, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+							(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, dest_backmode};
+						if(tcpsock.send(test, 12) != sf::Socket::Done)
 						{
 							printf("Send error\n");
 						}
@@ -1463,7 +1629,6 @@ int main(int argc, char** argv)
 
 						dest_clicked = false;
 					}
-
 				}
 			}
 			else
@@ -1488,6 +1653,7 @@ int main(int argc, char** argv)
 		draw_bat_status(win);
 
 		draw_dev(win);
+		draw_route(win, &some_route, p_cur_step);
 
 		win.display();
 
