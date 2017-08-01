@@ -33,12 +33,22 @@ sf::Font arial;
 int screen_x = 1200;
 int screen_y = 700; //700;
 
+double click_x, click_y;
+
 double origin_x = 0;
 double origin_y = 0;
 
 double cur_angle = 0.0;
 double cur_x = 0.0;
 double cur_y = 0.0;
+
+int show_dbgpoint, dbgpoint_x, dbgpoint_y, dbgpoint_r, dbgpoint_g, dbgpoint_b;
+
+int num_pers_dbgpoints;
+int pers_dbgpoint_x[100], pers_dbgpoint_y[100], pers_dbgpoint_r[100], pers_dbgpoint_g[100], pers_dbgpoint_b[100];
+
+
+double route_start_x, route_start_y;
 
 bool dest_clicked;
 double dest_x, dest_y, dest_angle, dest_backmode;
@@ -53,11 +63,6 @@ int charge_finished;
 float bat_voltage;
 int bat_percentage;
 
-
-double dev_start_x;
-double dev_start_y;
-double dev_end_x;
-double dev_end_y;
 
 void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
 {
@@ -113,19 +118,6 @@ void page_coords_from_unit_coords(int unit_x, int unit_y, int* pageidx_x, int* p
 double mm_per_pixel = 10.0;
 
 
-void draw_dev(sf::RenderWindow& win)
-{
-	sf::CircleShape circ(40.0/mm_per_pixel);
-	circ.setOrigin(20.0/mm_per_pixel, 20.0/mm_per_pixel);
-	circ.setFillColor(sf::Color(200,50,50));
-	circ.setPosition((dev_start_x+origin_x)/mm_per_pixel,(dev_start_y+origin_y)/mm_per_pixel);
-	win.draw(circ);
-
-	circ.setFillColor(sf::Color(50,200,50));
-	circ.setPosition((dev_end_x+origin_x)/mm_per_pixel,(dev_end_y+origin_y)/mm_per_pixel);
-	win.draw(circ);
-}
-
 typedef struct
 {
 	int x;
@@ -155,7 +147,6 @@ typedef struct route_unit_T
 
 
 #define sq(x) ((x)*(x))
-#define MAX_F 99999999999999999.9
 
 void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g, int b, int dir)
 {
@@ -195,408 +186,10 @@ void dev_draw_circle(sf::RenderWindow& win, int unit_x, int unit_y, int r, int g
 
 }
 
-#define ROBOT_SHAPE_WINDOW 32
-uint8_t robot_shapes[32][ROBOT_SHAPE_WINDOW][ROBOT_SHAPE_WINDOW];
-
-int los_dbg;
 void draw_map(sf::RenderWindow& win);
-
-int obstacle_limit = 1;
-
-int check_hit(sf::RenderWindow& win, int x, int y, int direction)
-{
-	if(los_dbg)
-	{
-		win.clear(sf::Color(200,220,240));
-		draw_map(win);
-	}
-
-	int num_obstacles = 0;
-	for(int chk_x=0; chk_x<ROBOT_SHAPE_WINDOW; chk_x++)
-	{
-		for(int chk_y=0; chk_y<ROBOT_SHAPE_WINDOW; chk_y++)
-		{
-			int pageidx_x, pageidx_y, pageoffs_x, pageoffs_y;
-			page_coords_from_unit_coords(x-ROBOT_SHAPE_WINDOW/2+chk_x, y-ROBOT_SHAPE_WINDOW/2+chk_y, &pageidx_x, &pageidx_y, &pageoffs_x, &pageoffs_y);
-
-			if(!world.pages[pageidx_x][pageidx_y]) // out of bounds (not allocated) - give up instantly
-			{
-				return 1;
-			}
-
-			if(robot_shapes[direction][chk_x][chk_y])
-			{
-				if((world.pages[pageidx_x][pageidx_y]->units[pageoffs_x][pageoffs_y].result & UNIT_WALL))
-					num_obstacles++;
-
-				if(los_dbg)
-				{
-					dev_draw_circle(win, x-ROBOT_SHAPE_WINDOW/2+chk_x, y-ROBOT_SHAPE_WINDOW/2+chk_y, 255,70,255,-100);
-				}
-			}
-
-		}
-	}
-
-	if(los_dbg)
-	{
-
-		win.display();
-	}
-
-	if(num_obstacles > obstacle_limit)
-		return 1;
-
-	return 0;
-}
-
-int test_robot_turn(sf::RenderWindow& win, int x, int y, float start, float end)
-{
-	int cw = 0;
-
-	while(start >= 2.0*M_PI) start -= 2.0*M_PI;
-	while(start < 0.0) start += 2.0*M_PI;
-
-	while(end >= 2.0*M_PI) end -= 2.0*M_PI;
-	while(end < 0.0) end += 2.0*M_PI;
-
-	// Calc for CCW (positive angle):
-	float da = end - start;
-	while(da >= 2.0*M_PI) da -= 2.0*M_PI;
-	while(da < 0.0) da += 2.0*M_PI;
-
-	if(da > M_PI)
-	{
-		// CCW wasn't fine, turn CW
-		cw = 1;
-		da = start - end;
-		while(da >= 2.0*M_PI) da -= 2.0*M_PI;
-		while(da < 0.0) da += 2.0*M_PI;
-	}
-
-	int dir_cur = (start/(2.0*M_PI) * 32.0);
-	int dir_end = (end/(2.0*M_PI) * 32.0);
-
-//	printf("test_robot_turn()  start=%.4f  end=%.4f  da=%.4f,  cw=%d\n", start, end, da, cw);
-
-	while(dir_cur != dir_end)
-	{
-//		printf("test_robot_turn(): dir_cur = %d, dir_end=%d\n", dir_cur, dir_end);
-
-		if(check_hit(win, x, y, dir_cur))
-			return 0;
-
-		if(cw) dir_cur--; else dir_cur++;
-
-		if(dir_cur < 0) dir_cur = 31;
-		else if(dir_cur > 31) dir_cur = 0;
-
-	}
-
-	return 1;
-}
-
-
-int line_of_sight(sf::RenderWindow& win, xy_t p1, xy_t p2)
-{
-	int dx = p2.x - p1.x;
-	int dy = p2.y - p1.y;
-
-	const float step = 500.0/MAP_UNIT_W;
-
-	float len = sqrt(sq(dx) + sq(dy));
-
-	float pos = 0.0;
-	int terminate = 0;
-
-	float ang = atan2(dy, dx);
-	if(ang < 0.0) ang += 2.0*M_PI;
-	int dir = (ang/(2.0*M_PI) * 32.0)+0.5;
-
-
-//	printf("ang = %.4f  dir = %d \n", ang, dir);
-
-	while(1)
-	{
-		int x = (cos(ang)*pos + (float)p1.x)+0.5;
-		int y = (sin(ang)*pos + (float)p1.y)+0.5;
-
-//		printf("check_hit(%d, %d, %d) = ", x, y, dir);
-
-		if(check_hit(win, x, y, dir))
-		{
-//			printf("1 !\n");
-			return 0;
-		}
-//		printf("0\n");
-
-		if(terminate) break;
-		pos += step;
-		if(pos > len)
-		{
-			pos = len;
-			terminate = 1;
-		}
-	}
-
-	return 1;
-}
-
-
-//#define SetPixel(shape, x, y) {if((x)>=0 && (y)>=0 && (x)<ROBOT_SHAPE_WINDOW && (y)<ROBOT_SHAPE_WINDOW) robot_shapes[shape][(x)][(y)] = 1;}
-#define SetPixel(shape, x, y) { robot_shapes[shape][(x)][(y)] = 1;}
-
-// min X and max X for every horizontal line within the triangle
-long ContourX[ROBOT_SHAPE_WINDOW][2];
-
-#define ABS(x) ((x >= 0) ? x : -x)
-
-// Scans a side of a triangle setting min X and max X in ContourX[][]
-// (using the Bresenham's line drawing algorithm).
-void ScanLine(long x1, long y1, long x2, long y2)
-{
-  long sx, sy, dx1, dy1, dx2, dy2, x, y, m, n, k, cnt;
-
-  sx = x2 - x1;
-  sy = y2 - y1;
-
-  if (sx > 0) dx1 = 1;
-  else if (sx < 0) dx1 = -1;
-  else dx1 = 0;
-
-  if (sy > 0) dy1 = 1;
-  else if (sy < 0) dy1 = -1;
-  else dy1 = 0;
-
-  m = ABS(sx);
-  n = ABS(sy);
-  dx2 = dx1;
-  dy2 = 0;
-
-  if (m < n)
-  {
-    m = ABS(sy);
-    n = ABS(sx);
-    dx2 = 0;
-    dy2 = dy1;
-  }
-
-  x = x1; y = y1;
-  cnt = m + 1;
-  k = n / 2;
-
-  while (cnt--)
-  {
-    if ((y >= 0) && (y < ROBOT_SHAPE_WINDOW))
-    {
-      if (x < ContourX[y][0]) ContourX[y][0] = x;
-      if (x > ContourX[y][1]) ContourX[y][1] = x;
-    }
-
-    k += n;
-    if (k < m)
-    {
-      x += dx2;
-      y += dy2;
-    }
-    else
-    {
-      k -= m;
-      x += dx1;
-      y += dy1;
-    }
-  }
-}
-
-void draw_triangle(int a_idx, int x0, int y0, int x1, int y1, int x2, int y2)
-{
-  int y;
-
-  for (y = 0; y < ROBOT_SHAPE_WINDOW; y++)
-  {
-    ContourX[y][0] = 999999; // min X
-    ContourX[y][1] = -999999; // max X
-  }
-
-  ScanLine(x0, y0, x1, y1);
-  ScanLine(x1, y1, x2, y2);
-  ScanLine(x2, y2, x0, y0);
-
-  for (y = 0; y < ROBOT_SHAPE_WINDOW; y++)
-  {
-    if (ContourX[y][1] >= ContourX[y][0])
-    {
-      long x = ContourX[y][0];
-      long len = 1 + ContourX[y][1] - ContourX[y][0];
-
-
-      // Can draw a horizontal line instead of individual pixels here
-      while (len--)
-      {
-        SetPixel(a_idx, x, y);
-	x++;
-      }
-    }
-  }
-}
 
 #define TODEG(x) ((360.0*x)/(2.0*M_PI))
 
-int tight_shapes = 0;
-
-void draw_robot_shape(int a_idx, float ang)
-{
-	float o_x = (ROBOT_SHAPE_WINDOW/2.0)*(float)MAP_UNIT_W;
-	float o_y = (ROBOT_SHAPE_WINDOW/2.0)*(float)MAP_UNIT_W;
-
-	// Robot size plus margin
-//	float robot_xs = (524.0 + 20.0);
-//	float robot_ys = (480.0 + 20.0);
-
-	float robot_xs, robot_ys;
-
-	if(tight_shapes)
-	{
-		robot_xs = (524.0 + 0.0);
-		robot_ys = (480.0 + 0.0);
-	}
-	else
-	{
-		robot_xs = (524.0 + 80.0);
-		robot_ys = (480.0 + 160.0);
-	}
-
-	float middle_xoffs = -120.0; // from o_x, o_y to the robot middle point.
-	float middle_yoffs = -0.0;
-
-/*
-
-	Y                         / positive angle
-	^                       /
-	|                     /
-	|                   /
-	+----> X            -------------> zero angle
-
-	Corner numbers:
-
-	1-----------------------2
-	|                       |
-	|                       |
-	|                       |
-	|                 O     |  --->
-	|                       |
-	|                       |
-	|                       |
-	4-----------------------3
-
-	Vector lengths O->1, O->2, O->3, O->4 are called a,b,c,d, respectively.
-	Angles of those vectors relative to O are called ang1, ang2, ang3, ang4.
-
-*/	
-	// Basic Pythagoras thingie
-	float a = sqrt(sq(0.5*robot_xs - middle_xoffs) + sq(0.5*robot_ys + middle_yoffs));
-	float b = sqrt(sq(0.5*robot_xs + middle_xoffs) + sq(0.5*robot_ys + middle_yoffs));
-	float c = sqrt(sq(0.5*robot_xs + middle_xoffs) + sq(0.5*robot_ys - middle_yoffs));
-	float d = sqrt(sq(0.5*robot_xs - middle_xoffs) + sq(0.5*robot_ys - middle_yoffs));
-
-//	printf("a=%.1f b=%.1f c=%.1f d=%.1f\n", a,b,c,d);
-
-	// The angles:
-	float ang1 = M_PI - asin((0.5*robot_ys)/a);
-	float ang2 = asin((0.5*robot_ys)/b);
-	float ang3 = -1*asin((0.5*robot_ys)/c);
-	float ang4 = -1*(M_PI - asin((0.5*robot_ys)/d));
-
-//	printf("ang1=%.2f ang2=%.2f ang3=%.2f ang4=%.2f\n", ang1,ang2,ang3,ang4);
-//	printf("(ang1=%.2f ang2=%.2f ang3=%.2f ang4=%.2f)\n", TODEG(ang1),TODEG(ang2),TODEG(ang3),TODEG(ang4));
-
-//	printf("adj ang = %.2f\n", ang);
-
-	// Turn the whole robot:
-	ang1 += ang;
-	ang2 += ang;
-	ang3 += ang;
-	ang4 += ang;
-
-//	printf("ang1=%.2f ang2=%.2f ang3=%.2f ang4=%.2f\n", ang1,ang2,ang3,ang4);
-
-	float x1 = cos(ang1)*a + o_x;
-	float y1 = sin(ang1)*a + o_y;
-	float x2 = cos(ang2)*b + o_x;
-	float y2 = sin(ang2)*b + o_y;
-	float x3 = cos(ang3)*c + o_x;
-	float y3 = sin(ang3)*c + o_y;
-	float x4 = cos(ang4)*d + o_x;
-	float y4 = sin(ang4)*d + o_y;
-
-//	printf("x1 = %4.0f  y1 = %4.0f\n", x1, y1);
-//	printf("x2 = %4.0f  y2 = %4.0f\n", x2, y2);
-//	printf("x3 = %4.0f  y3 = %4.0f\n", x3, y3);
-//	printf("x4 = %4.0f  y4 = %4.0f\n", x4, y4);
-
-	// "Draw" the robot in two triangles:
-
-	// First, triangle 1-2-3
-	draw_triangle(a_idx, x1/(float)MAP_UNIT_W, y1/(float)MAP_UNIT_W, x2/(float)MAP_UNIT_W, y2/(float)MAP_UNIT_W, x3/(float)MAP_UNIT_W, y3/(float)MAP_UNIT_W);
-	// Second, triangle 1-3-4
-	draw_triangle(a_idx, x1/(float)MAP_UNIT_W, y1/(float)MAP_UNIT_W, x3/(float)MAP_UNIT_W, y3/(float)MAP_UNIT_W, x4/(float)MAP_UNIT_W, y4/(float)MAP_UNIT_W);
-}
-
-
-void dev_gen_robot_shapes()
-{
-	// Generate lookup tables showing the shape of robot in mapping unit matrices in different orientations.
-	// These are used in mapping to test whether the (x,y) coords result in some part of a robot hitting a wall.
-
-	for(int a=0; a<32; a++)
-	{
-		draw_robot_shape(a, ((float)a*2.0*M_PI)/32.0);
-
-/*		printf("a = %d\n", a);
-
-		for(int y = 0; y < ROBOT_SHAPE_WINDOW; y++)
-		{
-			for(int x = 0; x < ROBOT_SHAPE_WINDOW; x++)
-			{
-				printf(robot_shapes[a][x][y]?"# ":"  ");
-			}
-			printf("\n");
-		}
-*/
-	}
-
-}
-
-void normal_search_mode()
-{
-	obstacle_limit = 1;
-	tight_shapes = 0;
-	dev_gen_robot_shapes();	
-}
-
-void tight_search_mode()
-{
-	obstacle_limit = 2;
-	tight_shapes = 1;
-	dev_gen_robot_shapes();	
-}
-
-search_unit_t* closed_set = NULL;
-search_unit_t* open_set = NULL;
-
-
-void dev_draw_sets(sf::RenderWindow& win)
-{
-	for(search_unit_t* p_iter = open_set; p_iter != NULL; p_iter=p_iter->hh.next)
-	{
-		dev_draw_circle(win, p_iter->loc.x, p_iter->loc.y, 250,50,50, p_iter->direction);
-	}
-
-	for(search_unit_t* p_iter = closed_set; p_iter != NULL; p_iter=p_iter->hh.next)
-	{
-		dev_draw_circle(win, p_iter->loc.x, p_iter->loc.y, 50,250,50, p_iter->direction);
-	}
-}
 
 route_unit_t *some_route = NULL;
 route_unit_t *p_cur_step = NULL;
@@ -612,7 +205,7 @@ void clear_route(route_unit_t **route)
 	*route = NULL;
 }
 
-void draw_route(sf::RenderWindow& win, route_unit_t **route, route_unit_t *cur)
+void draw_route(sf::RenderWindow& win, route_unit_t **route)
 {
 
 	if(!route)
@@ -625,430 +218,50 @@ void draw_route(sf::RenderWindow& win, route_unit_t **route, route_unit_t *cur)
 			dev_draw_circle(win, rt->loc.x, rt->loc.y, 130,20,40,-123);
 		else
 			dev_draw_circle(win, rt->loc.x, rt->loc.y, 20,130,40,-123);
-	}
 
-	if(cur)
+	}
+}
+
+void draw_route_mm(sf::RenderWindow& win, route_unit_t **route)
+{
+	if(!route)
+		return;
+
+	route_unit_t *rt;
+	route_unit_t *prev;
+	int first = 1;
+	DL_FOREACH(*route, rt)
 	{
-		if(cur->backmode)
-			dev_draw_circle(win, cur->loc.x, cur->loc.y, 255,20,40,-123);
+		float x1, x2, y1, y2;
+
+		if(first)
+		{
+			x1 = (route_start_x+origin_x)/mm_per_pixel;
+			y1 = (route_start_y+origin_y)/mm_per_pixel;
+			first = 0;
+		}
 		else
-			dev_draw_circle(win, cur->loc.x, cur->loc.y, 20,255,40,-123);
+		{
+			x1 = (prev->loc.x+origin_x)/mm_per_pixel;
+			y1 = (prev->loc.y+origin_y)/mm_per_pixel;
+		}
+
+		x2 = (rt->loc.x+origin_x)/mm_per_pixel;
+		y2 = (rt->loc.y+origin_y)/mm_per_pixel;
+		sf::RectangleShape rect(sf::Vector2f( sqrt(pow(x2-x1,2)+pow(y2-y1,2)), 6.0));
+		rect.setOrigin(0, 3.0);
+		rect.setPosition(x1, y1);
+		rect.setRotation(atan2(y2-y1,x2-x1)*180.0/M_PI);
+		rect.setFillColor(rt->backmode?sf::Color(180,0,0,170):sf::Color(0,180,0,170));
+
+		win.draw(rect);
+
+		prev = rt;
 	}
 }
 
-int dev_search(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
-{
-	clear_route(route);
-
-	int s_x, s_y, e_x, e_y;
-	unit_coords(start_x_mm, start_y_mm, &s_x, &s_y);
-	unit_coords(end_x_mm, end_y_mm, &e_x, &e_y);
-
-	while(start_ang >= 2.0*M_PI) start_ang -= 2.0*M_PI;
-	while(start_ang < 0.0) start_ang += 2.0*M_PI;
-	int start_dir = (start_ang/(2.0*M_PI) * 32.0)+0.5;
-
-	printf("Start %d,%d,  end %d,%d  start_ang=%f  start_dir=%d\n", s_x, s_y, e_x, e_y, start_ang, start_dir);
-
-
-	search_unit_t* p_start = (search_unit_t*) malloc(sizeof(search_unit_t));
-	memset(p_start, 0, sizeof(search_unit_t));
-
-	p_start->loc.x = s_x;
-	p_start->loc.y = s_y;
-	p_start->direction = start_dir;
-	p_start->parent = NULL;
-	// g = 0
-	p_start->f = sqrt((float)(sq(e_x-s_x) + sq(e_y-s_y)));
-
-	HASH_ADD(hh, open_set, loc,sizeof(xy_t), p_start);
-
-	int cnt = 0;
-
-	while(HASH_CNT(hh, open_set) > 0)
-	{
-		cnt++;
-
-		if(cnt > 200000)
-		{
-			printf("Giving up at cnt = %d\n", cnt);
-			return 3;
-		}
-
-		// Find the lowest f score from open_set.
-		search_unit_t* p_cur;
-		float lowest_f = 2.0*MAX_F;
-		for(search_unit_t* p_iter = open_set; p_iter != NULL; p_iter=p_iter->hh.next)
-		{
-			if(p_iter->f < lowest_f)
-			{
-				lowest_f = p_iter->f;
-				p_cur = p_iter;
-			}
-		}
-
-		if(p_cur->loc.x == e_x && p_cur->loc.y == e_y)
-		{
-
-			printf("Solution found, cnt = %d\n", cnt);
-
-			// solution found.
-
-			// Reconstruct the path
-
-				win.clear(sf::Color(200,220,240));
-				draw_map(win);
-				dev_draw_sets(win);
-//				win.display();
-
-
-			search_unit_t* p_recon = p_cur;
-			while( (p_recon = p_recon->parent) )
-			{
-				dev_draw_circle(win, p_recon->loc.x, p_recon->loc.y, 255,255,255,-123);
-//				win.display(); usleep(100000);
-				route_unit_t* point = malloc(sizeof(route_unit_t));
-				point->loc.x = p_recon->loc.x; point->loc.y = p_recon->loc.y;
-				point->backmode = 0;
-				DL_PREPEND(*route, point);
-			}
-
-			route_unit_t *rt = *route;
-			while(1)
-			{
-				if(rt->next && rt->next->next)
-				{
-//					los_dbg = 1;
-					if(line_of_sight(win,rt->loc, rt->next->next->loc))
-					{
-						dev_draw_circle(win, rt->next->loc.x, rt->next->loc.y, 255,128,128,-123);
-//						win.display(); usleep(200000);
-
-//						printf("Deleting.\n");
-						route_unit_t *tmp = rt->next;
-						DL_DELETE(*route, tmp);
-						free(tmp);
-					}
-					else
-						rt = rt->next;
-				}
-				else
-					break;
-			}
-
-			los_dbg = 0;
-
-			// Remove the first, because it's the starting point.
-			route_unit_t *tm = *route;
-			DL_DELETE(*route, tm);
-			free(tm);
-
-
-			DL_FOREACH(*route, rt)
-			{
-				dev_draw_circle(win, rt->loc.x, rt->loc.y, 255,255,0,-123);
-				win.display(); usleep(200000);
-			}
-
-			win.display();
-
-			// Free all memory.
-			search_unit_t *p_del, *p_tmp;
-			HASH_ITER(hh, closed_set, p_del, p_tmp)
-			{
-				HASH_DEL(closed_set, p_del);
-				free(p_del);
-			}
-			HASH_ITER(hh, open_set, p_del, p_tmp)
-			{
-				HASH_DEL(open_set, p_del);
-				free(p_del);
-			}
-
-				sf::Event event;
-				while (win.pollEvent(event)) ;
-				while(!sf::Keyboard::isKeyPressed(sf::Keyboard::F1)) ;
-
-
-			return 0;
-		}
-
-		// move from open to closed:
-		HASH_DELETE(hh, open_set, p_cur);
-		HASH_ADD(hh, closed_set, loc,sizeof(xy_t), p_cur);
-
-		// For each neighbor
-		for(int xx=-1; xx<=1; xx++)
-		{
-			for(int yy=-1; yy<=1; yy++)
-			{
-				search_unit_t* found;
-				float new_g;
-				float new_g_from_parent;
-				if(xx == 0 && yy == 0) continue;
-
-				search_unit_t* p_neigh;
-				xy_t neigh_loc = {p_cur->loc.x + xx, p_cur->loc.y + yy};
-
-				// Check if it's out-of-allowed area here:
-
-
-				HASH_FIND(hh, closed_set, &neigh_loc,sizeof(xy_t), found);
-				if(found)
-					continue; // ignore neighbor that's in closed_set.
-
-
-				// gscore for the neigbor: distance from the start to neighbor
-				// is current unit's g score plus distance to the neighbor.
-				new_g = p_cur->g + sqrt((float)(sq(p_cur->loc.x-neigh_loc.x) + sq(p_cur->loc.y-neigh_loc.y)));
-
-				// for theta*:
-				if(p_cur->parent)
-					new_g_from_parent = p_cur->parent->g + sqrt((float)(sq(p_cur->parent->loc.x-neigh_loc.x) + sq(p_cur->parent->loc.y-neigh_loc.y)));
-
-
-				HASH_FIND(hh, open_set, &neigh_loc,sizeof(xy_t), p_neigh);
-
-
-				int num_obstacles = 0;
-
-				int direction_from_cur_parent = -1;
-				int direction_from_neigh_parent = -1;
-
-				if(p_cur->parent)  // Use this if possible
-				{
-					int dir_dx = neigh_loc.x - p_cur->parent->loc.x;
-					int dir_dy = neigh_loc.y - p_cur->parent->loc.y;
-					float ang = atan2(dir_dy, dir_dx);
-					if(ang < 0.0) ang += 2.0*M_PI;
-					int dir_parent = ang/(2.0*M_PI) * 32.0;
-					direction_from_cur_parent = dir_parent;
-				}
-
-				if(p_neigh && p_neigh->parent)  // secondary
-				{
-					int dir_dx = p_neigh->parent->loc.x - neigh_loc.x;
-					int dir_dy = p_neigh->parent->loc.y - neigh_loc.y;
-					float ang = atan2(dir_dy, dir_dx);
-					if(ang < 0.0) ang += 2.0*M_PI;
-					int dir_parent = ang/(2.0*M_PI) * 32.0;
-					direction_from_neigh_parent = dir_parent;
-				}
-
-				int direction = 0;
-				if(direction_from_cur_parent < 0 && direction_from_neigh_parent < 0)  // if the previous two don't work out.
-				{
-					if(xx==1 && yy==1)        direction = 1*4; 
-					else if(xx==0 && yy==1)   direction = 2*4; 
-					else if(xx==-1 && yy==1)  direction = 3*4; 
-					else if(xx==-1 && yy==0)  direction = 4*4; 
-					else if(xx==-1 && yy==-1) direction = 5*4; 
-					else if(xx==0 && yy==-1)  direction = 6*4; 
-					else if(xx==1 && yy==-1)  direction = 7*4; 
-				}
-				else
-				{
-					if(direction_from_cur_parent >= 0)
-						direction = direction_from_cur_parent;
-					else
-						direction = direction_from_neigh_parent;
-				}
-
-
-				// If this is the first neighbor search, test if the robot can turn:
-				if(cnt == 1)
-				{
-					if(!test_robot_turn(win, p_cur->loc.x, p_cur->loc.y, start_ang, ((float)direction/32.0)*2.0*M_PI*direction))
-					{
-						printf("Robot cannot turn to direction %d\n", direction);
-						continue;
-					}
-				}
-
-
-
-//				dev_draw_circle(win, neigh_loc.x, neigh_loc.y, 255,255,255, direction);
-
-				if(check_hit(win, neigh_loc.x, neigh_loc.y, direction))
-				{
-
-					if(direction_from_neigh_parent != -1)
-					{
-						// try another thing before giving up:
-						direction = direction_from_neigh_parent;
-
-						if(check_hit(win, neigh_loc.x, neigh_loc.y, direction))
-							continue;
-					}
-					else
-						continue;
-
-				}
-
-
-				if(!p_neigh)
-				{
-					p_neigh = (search_unit_t*) malloc(sizeof(search_unit_t));
-					memset(p_neigh, 0, sizeof(search_unit_t));
-					p_neigh->loc.x = neigh_loc.x; p_neigh->loc.y = neigh_loc.y;
-					HASH_ADD(hh, open_set, loc,sizeof(xy_t), p_neigh);
-
-					p_neigh->direction = direction;
-					p_neigh->parent = p_cur;
-					p_neigh->g = new_g;
-					p_neigh->f = new_g + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
-
-				}
-				else
-				{
-					if(p_cur->parent && line_of_sight(win,p_cur->parent->loc, p_neigh->loc)) // Theta* style near-optimum (probably shortest) path
-					{
-						if(new_g_from_parent < p_neigh->g)
-						{
-							p_neigh->direction = direction;
-							p_neigh->parent = p_cur->parent;
-							p_neigh->g = new_g_from_parent;
-							p_neigh->f = new_g_from_parent + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
-						}
-					}
-					else if(new_g < p_neigh->g)  // A* style path shorter than before.
-					{
-						p_neigh->direction = direction;
-						p_neigh->parent = p_cur;
-						p_neigh->g = new_g;
-						p_neigh->f = new_g + sqrt((float)(sq(e_x-neigh_loc.x) + sq(e_y-neigh_loc.y)));
-					}
-				}
-
-
-				OUT_OF_BOUNDS: ;
-
-			}
-
-
-		}		
-	}
-
-	search_unit_t *p_del, *p_tmp;
-	HASH_ITER(hh, closed_set, p_del, p_tmp)
-	{
-		HASH_DELETE(hh, closed_set, p_del);
-		free(p_del);
-	}
-	HASH_ITER(hh, open_set, p_del, p_tmp)
-	{
-		HASH_DELETE(hh, open_set, p_del);
-		free(p_del);
-	}
-	
-	printf("Route not found, cnt = %d\n", cnt);
-
-	if(cnt < 200)
-	{
-		return 1;
-	}
-
-	return 2;
-	// Failure.
-
-}
-
-
-int dev_search2(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
-{
-
-#define SRCH_NUM_A 11
-	static const int a_s[SRCH_NUM_A] = 
-	{	0,	-10,	10,	-20,	20,	-30,	30,	-40,	40,	-50,	50	};
-
-
-#define SRCH_NUM_BACK 9
-	static const int b_s[SRCH_NUM_BACK] = 
-	{	-80,	-40,	-120,	-160,	-200,	-280,	-360,	-440,	-520	};
-
-
-	// If going forward doesn't work out from the beginning, try backing off slightly.
-
-	int ret = dev_search(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm);
-	if(ret == 0)
-		return 0;
-
-	if(ret == 1)
-	{
-		printf("Search fails in the start - trying to back off.\n");
-
-		for(int a_idx = 0; a_idx < SRCH_NUM_A; a_idx++)
-		{
-			for(int back_idx = 0; back_idx < SRCH_NUM_BACK; back_idx++)
-			{
-				float new_ang = start_ang + (2.0*M_PI*(float)a_s[a_idx]/360.0);
-				while(new_ang >= 2.0*M_PI) new_ang -= 2.0*M_PI;
-				while(new_ang < 0.0) new_ang += 2.0*M_PI;
-				int new_x = start_x_mm + cos(new_ang)*b_s[back_idx];
-				int new_y = start_y_mm + sin(new_ang)*b_s[back_idx];
-
-				int dir = (new_ang/(2.0*M_PI) * 32.0)+0.5;
-
-				int new_x_units, new_y_units;
-				unit_coords(new_x, new_y, &new_x_units, &new_y_units);
-
-				printf("Back off ang=%.2f deg, mm = %d  -> new start = (%d, %d) --> ", TODEG(new_ang), b_s[back_idx], new_x_units, new_y_units);
-
-				if(check_hit(win, new_x_units, new_y_units, dir))
-				{
-					printf("backing off hits the wall.\n");
-				}
-				else
-				{
-					int ret = dev_search(win, route, new_ang, new_x, new_y, end_x_mm, end_y_mm);
-					if(ret == 0)
-					{
-						printf("Search succeeded, stopping back-off search.\n");
-
-						route_unit_t* point = malloc(sizeof(route_unit_t));
-						point->loc.x = new_x_units; point->loc.y = new_y_units;
-						point->backmode = 1;			
-						DL_PREPEND(*route, point);
-
-						return 0;
-					}
-					else if(ret > 1)
-					{
-						printf("Search failed later than in the beginning, stopping back-off search.\n");
-						return 2;
-
-					}
-				}
-
-			}
-		}
-		return 1;
-	}
-
-	return 3;
-
-}
-
-
-int dev_search3(sf::RenderWindow& win, route_unit_t **route, float start_ang, int start_x_mm, int start_y_mm, int end_x_mm, int end_y_mm)
-{
-	normal_search_mode();
-	printf("Searching with normal limits...\n");
-	if(dev_search2(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm))
-	{
-		printf("Search failed - retrying with tighter limits.\n");
-		tight_search_mode();
-		if(dev_search2(win, route, start_ang, start_x_mm, start_y_mm, end_x_mm, end_y_mm))
-		{
-			printf("There is no route.\n");
-			return 1;
-		}
-	}
-
-	return 0;
-
-}
-
+//#define WALL_LEVEL(i) (255*((int)(i).num_obstacles)/((int)(i).num_seen))
+#define WALL_LEVEL(i) ((int)(i).num_obstacles*4)
 
 void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 {
@@ -1057,20 +270,6 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 
 	static uint8_t pixels[MAP_PAGE_W*MAP_PAGE_W*4];
 
-
-/*
-				sf::RectangleShape rect(sf::Vector2f(MAP_UNIT_W/mm_per_pixel,MAP_UNIT_W/mm_per_pixel));
-				rect.setPosition((startx+x*MAP_UNIT_W)/mm_per_pixel, (starty+y*MAP_UNIT_W)/mm_per_pixel);
-				if(page->units[x][y].result & UNIT_WALL)
-					rect.setFillColor(sf::Color(60,20,0));
-				else if(page->units[x][y].result & UNIT_ITEM)
-					rect.setFillColor(sf::Color(0,100,200));
-				else
-					rect.setFillColor(sf::Color(255,240,190)); // mapped
-
-				win.draw(rect);
-*/
-
 	for(int x = 0; x < MAP_PAGE_W; x++)
 	{
 		for(int y = 0; y < MAP_PAGE_W; y++)
@@ -1078,32 +277,62 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 
 			int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
 			if(alpha > 255) alpha=255;
-			if(page->units[x][y].result & UNIT_WALL)
+			alpha /= 2;
+			if(page->units[x][y].result & UNIT_DBG)
 			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 60;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 20;
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 255;
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 			}
-			else if(page->units[x][y].result & UNIT_ITEM)
+			else if(page->units[x][y].result & UNIT_3D_WALL)
 			{
 				pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
 				pixels[4*(y*MAP_PAGE_W+x)+1] = 100;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 200;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
+			}
+			else if(page->units[x][y].result & UNIT_DROP)
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
+			}
+			else if(page->units[x][y].result & UNIT_ITEM)
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
+			}
+			else if(page->units[x][y].num_obstacles)
+			{
+				int lvl = WALL_LEVEL(page->units[x][y]);
+				if(lvl > 140) lvl = 140;
+				int color = 140 - lvl;
+				if(!(page->units[x][y].result & UNIT_WALL))
+				{
+					color = 255;
+				}
+
+				pixels[4*(y*MAP_PAGE_W+x)+0] = color;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = color;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = color;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
 			}
 			else if(page->units[x][y].result & UNIT_MAPPED)
 			{
 				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 240;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 240 - sqrt(page->units[x][y].num_visited*200);
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 190;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
 			}
 			else
 			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 220;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 240;
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 230;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 230;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 230;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 			}
 		}
@@ -1198,6 +427,47 @@ void draw_bat_status(sf::RenderWindow& win)
 	}
 }
 
+void draw_texts(sf::RenderWindow& win)
+{
+	sf::Text t;
+	char buf[256];
+	t.setFont(arial);
+
+	sprintf(buf, "x=%d  y=%d  mm", (int)click_x, (int)click_y);
+	t.setString(buf);
+	t.setCharacterSize(18);
+	t.setColor(sf::Color(0,0,0));
+	t.setPosition(screen_x/2-50,screen_y-30);
+	win.draw(t);
+
+	if(show_dbgpoint)
+	{
+
+		sf::CircleShape circ(120.0/mm_per_pixel);
+		circ.setOrigin(120.0/mm_per_pixel, 120.0/mm_per_pixel);
+		circ.setFillColor(sf::Color(dbgpoint_r,dbgpoint_g,dbgpoint_b, 120));
+		circ.setOutlineColor(sf::Color(0,0,0,150));
+
+		circ.setPosition((dbgpoint_x+origin_x)/mm_per_pixel,(dbgpoint_y+origin_y)/mm_per_pixel);
+		win.draw(circ);
+	}
+
+	for(int i = 0; i < num_pers_dbgpoints; i++)
+	{
+
+		sf::CircleShape circ(120.0/mm_per_pixel);
+		circ.setOrigin(120.0/mm_per_pixel, 120.0/mm_per_pixel);
+		circ.setFillColor(sf::Color(pers_dbgpoint_r[i],pers_dbgpoint_g[i],pers_dbgpoint_b[i], 120));
+		circ.setOutlineColor(sf::Color(0,0,0,150));
+
+		circ.setPosition((pers_dbgpoint_x[i]+origin_x)/mm_per_pixel,(pers_dbgpoint_y[i]+origin_y)/mm_per_pixel);
+		win.draw(circ);
+
+	}
+
+}
+
+
 void draw_map(sf::RenderWindow& win)
 {
 	for(int x = 0; x < MAP_W; x++)
@@ -1226,7 +496,7 @@ void draw_robot(sf::RenderWindow& win)
 
 	r.setOrigin((0.5*robot_xs+lidar_xoffs)/mm_per_pixel,(0.5*robot_ys+lidar_yoffs)/mm_per_pixel);
 
-	r.setFillColor(sf::Color(180,100,70));
+	r.setFillColor(sf::Color(200,90,50,160));
 
 	r.setRotation(cur_angle);
 	r.setPosition((cur_x+origin_x)/mm_per_pixel,(cur_y+origin_y)/mm_per_pixel);
@@ -1273,8 +543,62 @@ typedef struct
 	point_t scan[3];
 } client_sonar_scan_t;
 
+typedef struct
+{
+	pos_t robot_pos;
+	int xsamples;
+	int ysamples;
+	int unit_size;
+	int8_t data[100*100];
+} client_tof3d_hmap_t;
+
 client_lidar_scan_t lidar;
 client_sonar_scan_t sonar;
+client_tof3d_hmap_t hmap;
+
+#define HMAP_ALPHA 200
+const sf::Color hmap_colors[7] = {
+/*-2*/ sf::Color(200,   0, 255, HMAP_ALPHA),
+/*-1*/ sf::Color(  0,   0, 255, HMAP_ALPHA),
+/* 0*/ sf::Color(255, 255, 255, HMAP_ALPHA/3),
+/*+1*/ sf::Color(  0, 200, 200, HMAP_ALPHA),
+/*+2*/ sf::Color(  0, 200,   0, HMAP_ALPHA),
+/*+3*/ sf::Color(100, 200,   0, HMAP_ALPHA),
+/*+4*/ sf::Color(200, 200,   0, HMAP_ALPHA)
+};
+
+
+void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
+{
+	for(int sy=0; sy < hm->ysamples; sy++)
+	{
+		for(int sx=0; sx < hm->xsamples; sx++)
+		{
+			int8_t val = hm->data[sy*hm->xsamples+sx];
+			if(val == 0) continue;
+			if(val < -2 || val > 4)
+			{
+				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
+				continue;
+			}
+
+			sf::RectangleShape rect(sf::Vector2f((float)hm->unit_size/mm_per_pixel/1.5,(float)hm->unit_size/mm_per_pixel/1.5));
+			rect.setOrigin((float)hm->unit_size/mm_per_pixel/3.0,(float)hm->unit_size/mm_per_pixel/3.0);
+			float x = /*hm->robot_pos.x + */sx*hm->unit_size;
+			float y = /*hm->robot_pos.y + */(sy-hm->ysamples/2)*hm->unit_size;
+
+			float ang = hm->robot_pos.ang/-360.0*2.0*M_PI;
+			float rotax = x*cos(ang) + y*sin(ang) + hm->robot_pos.x;
+			float rotay = -1*x*sin(ang) + y*cos(ang) + hm->robot_pos.y;
+
+			rect.setPosition((rotax + origin_x)/mm_per_pixel,
+					 (rotay + origin_y)/mm_per_pixel);
+			rect.setFillColor(hmap_colors[val+2]);
+			win.draw(rect);
+			
+		}
+	}
+}
 
 void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 {
@@ -1285,7 +609,7 @@ void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 		sf::RectangleShape rect(sf::Vector2f(3,3));
 		rect.setOrigin(1.5,1.5);
 		rect.setPosition((lid->scan[i].x+origin_x)/mm_per_pixel, (lid->scan[i].y+origin_y)/mm_per_pixel);
-		rect.setFillColor(sf::Color(0, 70, 0, 80));
+		rect.setFillColor(sf::Color(255, 0, 0, 100));
 		win.draw(rect);
 	}
 }
@@ -1322,8 +646,6 @@ int main(int argc, char** argv)
 	int focus = 1;
 	int online = 1;
 
-
-	dev_gen_robot_shapes();
 
 	if(argc != 3)
 	{
@@ -1484,6 +806,74 @@ int main(int argc, char** argv)
 					}
 					break;
 
+					case 135: // Route info
+					{
+						clear_route(&some_route);
+						int n_elems = len/9;
+
+						printf("got %d elements\n", n_elems);
+
+						route_start_x = cur_x;
+						route_start_y = cur_y;
+
+						for(int i = 0; i < n_elems; i++)
+						{
+							route_unit_t* point = malloc(sizeof(route_unit_t));
+							point->backmode = rxbuf[i*9+0];
+							point->loc.x = (int32_t)I32FROMBUF(rxbuf,i*9+1);
+							point->loc.y = (int32_t)I32FROMBUF(rxbuf,i*9+5);
+							printf("i=%d  back=%d, x=%d, y=%d\n", i, point->backmode, point->loc.x, point->loc.y);
+							DL_APPEND(some_route, point);
+						}
+					}
+					break;
+
+					case 137: // dbg_point
+					{
+
+						if(rxbuf[11] == 0)
+						{
+							show_dbgpoint = 1;
+							dbgpoint_x = (int32_t)I32FROMBUF(rxbuf,0);
+							dbgpoint_y = (int32_t)I32FROMBUF(rxbuf,4);
+							dbgpoint_r = rxbuf[8];
+							dbgpoint_g = rxbuf[9];
+							dbgpoint_b = rxbuf[10];
+						}
+						else
+						{
+							pers_dbgpoint_x[num_pers_dbgpoints] = (int32_t)I32FROMBUF(rxbuf,0);
+							pers_dbgpoint_y[num_pers_dbgpoints] = (int32_t)I32FROMBUF(rxbuf,4);
+							pers_dbgpoint_r[num_pers_dbgpoints] = rxbuf[8];
+							pers_dbgpoint_g[num_pers_dbgpoints] = rxbuf[9];
+							pers_dbgpoint_b[num_pers_dbgpoints] = rxbuf[10];
+							num_pers_dbgpoints++;
+							if(num_pers_dbgpoints > 99) num_pers_dbgpoints = 0;
+						}
+
+
+					}
+					break;
+
+					case 138: // 3D TOF HMAP
+					{
+						hmap.xsamples = rxbuf[0];
+						hmap.ysamples = rxbuf[1];
+
+						if(hmap.xsamples < 1 || hmap.xsamples > 99 || hmap.ysamples < 1 || hmap.ysamples > 99)
+						{
+							printf("Invalid 3D TOF HMAP xsamples * ysamples (%d * %d)\n", hmap.xsamples, hmap.ysamples);
+							break;
+						}
+						hmap.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 2))/65536.0 * 360.0;
+						hmap.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,4);
+						hmap.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,8);
+						hmap.unit_size = rxbuf[12];
+
+						memcpy(hmap.data, &rxbuf[13], hmap.xsamples*hmap.ysamples);
+					}
+					break;
+
 					default:
 					break;
 				}
@@ -1493,8 +883,8 @@ int main(int argc, char** argv)
 		if(focus)
 		{
 			sf::Vector2i localPosition = sf::Mouse::getPosition(win);
-			double click_x = (localPosition.x * mm_per_pixel) - origin_x;
-			double click_y = (localPosition.y * mm_per_pixel) - origin_y;
+			click_x = (localPosition.x * mm_per_pixel) - origin_x;
+			click_y = (localPosition.y * mm_per_pixel) - origin_y;
 
 			if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
 			{
@@ -1568,49 +958,6 @@ int main(int argc, char** argv)
 			else
 				right_click_on = false;
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num1))
-			{
-				dev_start_x = click_x; dev_start_y = click_y;
-			}
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num2))
-			{
-				dev_end_x = click_x; dev_end_y = click_y;
-			}
-
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num6))
-			{
-				dev_start_x = cur_x; dev_start_y = cur_y;
-			}
-
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num3))
-			{
-				if(!num3_pressed)
-				{
-					dev_search3(win, &some_route, 0, dev_start_x, dev_start_y, dev_end_x, dev_end_y);
-					p_cur_step = some_route;
-					num3_pressed = true;
-				}
-			}
-			else
-				num3_pressed = false;
-
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F12))
-			{
-				if(!f12_pressed)
-				{
-					dev_search3(win, &some_route, 2*M_PI*cur_angle/360.0, cur_x, cur_y, dev_end_x, dev_end_y);
-					p_cur_step = some_route;
-					f12_pressed = true;
-				}
-			}
-			else
-				f12_pressed = false;
-
-
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
 			{
@@ -1670,7 +1017,6 @@ int main(int argc, char** argv)
 			{
 			}
 
-
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Return))
 			{
 				if(!return_pressed)
@@ -1678,15 +1024,20 @@ int main(int argc, char** argv)
 					return_pressed = 1;
 					if(dest_clicked)
 					{
+						clear_route(&some_route);
+
 						int x = dest_x; int y = dest_y;
 
-						uint8_t test[12] = {55, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+						uint8_t test[12] = {56 /*ROUTE*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
 							(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, dest_backmode};
+
+						if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+							test[0] = 55; // DEST
+
 						if(tcpsock.send(test, 12) != sf::Socket::Done)
 						{
 							printf("Send error\n");
 						}
-
 
 						dest_clicked = false;
 					}
@@ -1701,7 +1052,7 @@ int main(int argc, char** argv)
 
 		}
 
-		win.clear(sf::Color(200,220,240));
+		win.clear(sf::Color(230,230,230));
 
 		draw_map(win);
 
@@ -1709,12 +1060,14 @@ int main(int argc, char** argv)
 
 		draw_lidar(win, &lidar);
 		draw_sonar(win, &sonar);
+		draw_tof3d_hmap(win, &hmap);
 
 		draw_hwdbg(win);
 		draw_bat_status(win);
 
-		draw_dev(win);
-		draw_route(win, &some_route, p_cur_step);
+		draw_route_mm(win, &some_route);
+
+		draw_texts(win);
 
 		win.display();
 
