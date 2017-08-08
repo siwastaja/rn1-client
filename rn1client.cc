@@ -16,6 +16,7 @@
 #include "client_memdisk.h"
 #include "uthash.h"
 #include "utlist.h"
+#include "sfml_gui.h"
 
 #define I16FROMBUF(b_, s_)  ( ((uint16_t)b_[(s_)+0]<<8) | ((uint16_t)b_[(s_)+1]<<0) )
 #define I32FROMBUF(b_, s_)  ( ((uint32_t)b_[(s_)+0]<<24) | ((uint32_t)b_[(s_)+1]<<16) | ((uint32_t)b_[(s_)+2]<<8) | ((uint32_t)b_[(s_)+3]<<0) )
@@ -50,8 +51,11 @@ int pers_dbgpoint_x[100], pers_dbgpoint_y[100], pers_dbgpoint_r[100], pers_dbgpo
 
 double route_start_x, route_start_y;
 
-bool dest_clicked;
-double dest_x, dest_y, dest_angle, dest_backmode;
+typedef enum {MODE_INVALID = -1, MODE_ROUTE = 0, MODE_MANUAL_FWD, MODE_MANUAL_BACK, MODE_FORCE_FWD, MODE_FORCE_BACK, MODE_POSE} click_mode_t;
+click_mode_t click_mode;
+
+double dest_x, dest_y;
+click_mode_t dest_type = MODE_INVALID;
 
 double robot_xs = 480.0;
 double robot_ys = 524.0;
@@ -62,6 +66,25 @@ int charging;
 int charge_finished;
 float bat_voltage;
 int bat_percentage;
+
+const char* click_mode_names[6] =
+{
+	"click to find route",
+	"click to go directly (forward drive)",
+	"click to go directly (REVERSE drive)",
+	"click to force the robot (forward drive)",
+	"click to force the robot (REVERSE drive)",
+	"click to rotate the pose"
+};
+
+const sf::Color click_mode_colors[6] = {
+sf::Color(110, 255, 110, 190),
+sf::Color(235, 235, 110, 190),
+sf::Color(235, 235, 110, 190),
+sf::Color(255, 110, 110, 190),
+sf::Color(255, 110, 110, 190),
+sf::Color(110, 200, 200, 190)
+};
 
 
 void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
@@ -277,7 +300,7 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 
 			int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
 			if(alpha > 255) alpha=255;
-			alpha /= 2;
+			//alpha /= 2;
 			if(page->units[x][y].result & UNIT_DBG)
 			{
 				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
@@ -285,24 +308,31 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 			}
+			else if(page->units[x][y].result & UNIT_INVISIBLE_WALL)
+			{
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
+			}
 			else if(page->units[x][y].result & UNIT_3D_WALL)
 			{
 				pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 110;
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
 			}
 			else if(page->units[x][y].result & UNIT_DROP)
 			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 110;
 				pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+2] = 110;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
 			}
 			else if(page->units[x][y].result & UNIT_ITEM)
 			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 100;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 100;
+				pixels[4*(y*MAP_PAGE_W+x)+0] = 130;
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 130;
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
 			}
@@ -379,8 +409,8 @@ void draw_hwdbg(sf::RenderWindow& win)
 	sf::Text t;
 	char buf[500];
 	t.setFont(arial);
-	t.setCharacterSize(12);
-	t.setColor(sf::Color(0,0,0));
+	t.setCharacterSize(11);
+	t.setColor(sf::Color(0,0,0,190));
 	for(int i = 0; i<10; i++)
 	{
 		sprintf(buf, "dbg[%2i] = %11d (%08x)", i, hwdbg[i], hwdbg[i]);
@@ -433,18 +463,45 @@ void draw_texts(sf::RenderWindow& win)
 	char buf[256];
 	t.setFont(arial);
 
-	sprintf(buf, "x=%d  y=%d  mm", (int)click_x, (int)click_y);
+	const int bot_box_xs = 400;
+	const int bot_box_ys = 63;
+	sf::RectangleShape rect(sf::Vector2f( bot_box_xs, bot_box_ys));
+	rect.setPosition(screen_x/2 - bot_box_xs/2, screen_y-bot_box_ys-10);
+	rect.setFillColor(sf::Color(255,255,255,160));
+	win.draw(rect);
+
+
+	sprintf(buf, "robot: x=%d  y=%d  mm  (ang=%.1f deg)", (int)cur_x, (int)cur_y, cur_angle);
 	t.setString(buf);
-	t.setCharacterSize(18);
-	t.setColor(sf::Color(0,0,0));
-	t.setPosition(screen_x/2-50,screen_y-30);
+	t.setCharacterSize(17);
+	t.setColor(sf::Color(0,0,0,160));
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-51);
 	win.draw(t);
 
+	sprintf(buf, "cursor: x=%d  y=%d  mm", (int)click_x, (int)click_y);
+	t.setString(buf);
+	t.setCharacterSize(14);
+	t.setColor(sf::Color(0,0,0, 120));
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-30);
+	win.draw(t);
+
+	sprintf(buf, "%s", click_mode_names[click_mode]);
+	t.setString(buf);
+	t.setCharacterSize(17);
+	t.setColor(sf::Color(0,0,0,130));
+	t.setPosition(screen_x/2-bot_box_xs/2+11,screen_y-72);
+	win.draw(t);
+	t.setColor(click_mode_colors[click_mode]);
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-73);
+	win.draw(t);
+
+	const float dbg_point_r = 35.0;
 	if(show_dbgpoint)
 	{
 
-		sf::CircleShape circ(120.0/mm_per_pixel);
-		circ.setOrigin(120.0/mm_per_pixel, 120.0/mm_per_pixel);
+
+		sf::CircleShape circ(dbg_point_r/mm_per_pixel);
+		circ.setOrigin(dbg_point_r/mm_per_pixel, dbg_point_r/mm_per_pixel);
 		circ.setFillColor(sf::Color(dbgpoint_r,dbgpoint_g,dbgpoint_b, 120));
 		circ.setOutlineColor(sf::Color(0,0,0,150));
 
@@ -455,8 +512,8 @@ void draw_texts(sf::RenderWindow& win)
 	for(int i = 0; i < num_pers_dbgpoints; i++)
 	{
 
-		sf::CircleShape circ(120.0/mm_per_pixel);
-		circ.setOrigin(120.0/mm_per_pixel, 120.0/mm_per_pixel);
+		sf::CircleShape circ(dbg_point_r/mm_per_pixel);
+		circ.setOrigin(dbg_point_r/mm_per_pixel, dbg_point_r/mm_per_pixel);
 		circ.setFillColor(sf::Color(pers_dbgpoint_r[i],pers_dbgpoint_g[i],pers_dbgpoint_b[i], 120));
 		circ.setOutlineColor(sf::Color(0,0,0,150));
 
@@ -466,7 +523,6 @@ void draw_texts(sf::RenderWindow& win)
 	}
 
 }
-
 
 void draw_map(sf::RenderWindow& win)
 {
@@ -503,18 +559,24 @@ void draw_robot(sf::RenderWindow& win)
 
 	win.draw(r);
 
-	if(dest_clicked)
+	if(dest_type > -1 && dest_type < 7)
 	{
-		if(dest_backmode == 1)
-			r.setFillColor(sf::Color(255,0,0,128));
-		else if(dest_backmode == 2)
-			r.setFillColor(sf::Color(255,255,0,128));
-		else
-			r.setFillColor(sf::Color(0,255,0,128));
-
-		r.setRotation(cur_angle+dest_angle);
-		r.setPosition((origin_x+dest_x)/mm_per_pixel,(origin_y+dest_y)/mm_per_pixel);
-		win.draw(r);
+		const float robot_mark_radius = 200.0;
+		const float robot_mark_radius2 = 40.0;
+		sf::CircleShape circ(robot_mark_radius/mm_per_pixel);
+		circ.setOrigin(robot_mark_radius/(mm_per_pixel), robot_mark_radius/(mm_per_pixel));
+		circ.setFillColor(click_mode_colors[dest_type]);
+		circ.setOutlineThickness(1.0);
+		circ.setOutlineColor(sf::Color(0,0,0,100));
+		circ.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
+		win.draw(circ);
+		sf::CircleShape circ2(robot_mark_radius2/mm_per_pixel);
+		circ2.setOrigin(robot_mark_radius2/(mm_per_pixel), robot_mark_radius2/(mm_per_pixel));
+		circ2.setFillColor(click_mode_colors[dest_type]);
+		circ2.setOutlineThickness(1.0);
+		circ2.setOutlineColor(sf::Color(0,0,0,150));
+		circ2.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
+		win.draw(circ2);
 	}
 }
 
@@ -557,14 +619,15 @@ client_sonar_scan_t sonar;
 client_tof3d_hmap_t hmap;
 
 #define HMAP_ALPHA 200
-const sf::Color hmap_colors[7] = {
+const sf::Color hmap_colors[8] = {
 /*-2*/ sf::Color(200,   0, 255, HMAP_ALPHA),
 /*-1*/ sf::Color(  0,   0, 255, HMAP_ALPHA),
-/* 0*/ sf::Color(255, 255, 255, HMAP_ALPHA/3),
-/*+1*/ sf::Color(  0, 200, 200, HMAP_ALPHA),
-/*+2*/ sf::Color(  0, 200,   0, HMAP_ALPHA),
-/*+3*/ sf::Color(100, 200,   0, HMAP_ALPHA),
-/*+4*/ sf::Color(200, 200,   0, HMAP_ALPHA)
+/* 0*/ sf::Color(  0,   0,   0, HMAP_ALPHA/3),
+/*+1*/ sf::Color(255, 255, 255, HMAP_ALPHA/2),
+/*+2*/ sf::Color(  0, 200, 200, HMAP_ALPHA),
+/*+3*/ sf::Color(  0, 200,   0, HMAP_ALPHA),
+/*+4*/ sf::Color(100, 200,   0, HMAP_ALPHA),
+/*+5*/ sf::Color(200, 200,   0, HMAP_ALPHA)
 };
 
 
@@ -576,7 +639,7 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 		{
 			int8_t val = hm->data[sy*hm->xsamples+sx];
 			if(val == 0) continue;
-			if(val < -2 || val > 4)
+			if(val < -2 || val > 5)
 			{
 				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
 				continue;
@@ -634,15 +697,30 @@ unsigned short serv_port;
 
 sf::TcpSocket tcpsock;
 
+void mode_msg(uint8_t mode)
+{
+	uint8_t test[4] = {58 /*MODE*/, 0, 1, mode};
+
+	if(tcpsock.send(test, 4) != sf::Socket::Done)
+	{
+		printf("Send error\n");
+	}
+}
+
+void go_charge_msg(uint8_t params)
+{
+	uint8_t test[4] = {57, 0, 1, params};
+
+	if(tcpsock.send(test, 4) != sf::Socket::Done)
+	{
+		printf("Send error\n");
+	}
+}
+
 int main(int argc, char** argv)
 {
-	bool f1_pressed = false;
-	bool f5_pressed = false;
-	bool f12_pressed = false;
+	bool f_pressed[13] = {false};
 	bool return_pressed = false;
-	bool num3_pressed = false;
-	bool num4_pressed = false;
-	bool num5_pressed = false;
 	int focus = 1;
 	int online = 1;
 
@@ -679,11 +757,43 @@ int main(int argc, char** argv)
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "RN#1 Client", sf::Style::Default, sets);
 	win.setFramerateLimit(30);
 
+
+	sfml_gui gui(win, arial);
+
+	int but_localize    = gui.add_button(screen_x-170, 50 + 0*35, 140, 25, "     Localize (init)", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+	int but_autonomous  = gui.add_button(screen_x-170, 50 + 1*35, 140, 25, "      Autonomous", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+	int but_takecontrol = gui.add_button(screen_x-170, 50 + 2*35, 140, 25, "      Take control", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+	int but_stop        = gui.add_button(screen_x-170, 50 + 3*35, 65, 25, "Stop", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+	int but_free        = gui.add_button(screen_x-170+75, 50 + 3*35, 65, 25, "Free", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+
+	int but_route     = gui.add_button(screen_x-170, 60 + 4*35, 100, 25, "Route", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_ROUTE, DEF_BUT_COL_PRESSED, false);
+	int but_manu_fwd  = gui.add_button(screen_x-170, 60 + 5*35, 100, 25, "Manual fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_MANUAL, DEF_BUT_COL_PRESSED, false);
+	int but_manu_back = gui.add_button(screen_x-170+110, 60 + 5*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_force_fwd = gui.add_button(screen_x-170, 60 + 6*35, 100, 25, "Force fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_FORCE, DEF_BUT_COL_PRESSED, false);
+	int but_force_back= gui.add_button(screen_x-170+110, 60 + 6*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_pose      = gui.add_button(screen_x-170, 60 + 7*35, 100, 25, "Rotate pose", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_POSE, DEF_BUT_COL_PRESSED, false);
+
+	int but_findcharger = gui.add_button(screen_x-170, 70 + 8*35, 140, 25, "  Find charger", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+
+
 	bool right_click_on = false;
+	bool left_click_on = false;
 	double prev_click_x = 0.0, prev_click_y = 0.0;
 
 	while(win.isOpen())
 	{
+		int gui_box_xs = 170;
+		int gui_box_ys = screen_y-65;
+		int gui_box_x = screen_x-185;
+		int gui_box_y = 15;
+
+		gui.buttons[but_route]->pressed =      (click_mode==MODE_ROUTE);
+		gui.buttons[but_manu_fwd]->pressed =   (click_mode==MODE_MANUAL_FWD);
+		gui.buttons[but_manu_back]->pressed =  (click_mode==MODE_MANUAL_BACK);
+		gui.buttons[but_force_fwd]->pressed =  (click_mode==MODE_FORCE_FWD);
+		gui.buttons[but_force_back]->pressed = (click_mode==MODE_FORCE_BACK);
+		gui.buttons[but_pose]->pressed =       (click_mode==MODE_POSE);
+
 		sf::Event event;
 		while (win.pollEvent(event))
 		{
@@ -694,6 +804,22 @@ int main(int argc, char** argv)
 				sf::Vector2u size = win.getSize();
 				screen_x = size.x;
 				screen_y = size.y;
+				int but_start_x = screen_x-170;
+				gui.buttons[but_route]->x = but_start_x;
+				gui.buttons[but_manu_fwd]->x = but_start_x;
+				gui.buttons[but_manu_back]->x = but_start_x+110;
+				gui.buttons[but_force_fwd]->x = but_start_x;
+				gui.buttons[but_force_back]->x = but_start_x+110;
+				gui.buttons[but_pose]->x = but_start_x;
+				gui.buttons[but_localize]->x = but_start_x;
+				gui.buttons[but_autonomous]->x = but_start_x;
+				gui.buttons[but_takecontrol]->x = but_start_x;
+				gui.buttons[but_stop]->x = but_start_x;
+				gui.buttons[but_free]->x = but_start_x+75;
+				gui.buttons[but_findcharger]->x = but_start_x;
+
+				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
+				win.setView(sf::View(visibleArea));
 			}
 			if(event.type == sf::Event::LostFocus)
 				focus = 0;
@@ -870,6 +996,7 @@ int main(int argc, char** argv)
 						hmap.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,8);
 						hmap.unit_size = rxbuf[12];
 
+//						printf("Got %d x %d hmap at %d, %d, %d\n", hmap.xsamples, hmap.ysamples, hmap.robot_pos.ang, hmap.robot_pos.x, hmap.robot_pos.y);
 						memcpy(hmap.data, &rxbuf[13], hmap.xsamples*hmap.ysamples);
 					}
 					break;
@@ -883,81 +1010,205 @@ int main(int argc, char** argv)
 		if(focus)
 		{
 			sf::Vector2i localPosition = sf::Mouse::getPosition(win);
-			click_x = (localPosition.x * mm_per_pixel) - origin_x;
-			click_y = (localPosition.y * mm_per_pixel) - origin_y;
 
-			if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
+			if(localPosition.x > gui_box_x-5 && localPosition.x < gui_box_x+gui_box_xs+5 && localPosition.y > gui_box_y-5 && localPosition.y < gui_box_y+gui_box_ys+5)
 			{
-				dest_clicked = true;
-				dest_x = click_x; dest_y = click_y;
-				dest_backmode = 2;
-			}
-
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num5))
-			{
-				if(!num5_pressed)
+				int but = gui.check_button_status();
+				if     (but == but_route)      click_mode = MODE_ROUTE;
+				else if(but == but_manu_fwd)   click_mode = MODE_MANUAL_FWD;
+				else if(but == but_force_fwd)  click_mode = MODE_FORCE_FWD;
+				else if(but == but_manu_back)  click_mode = MODE_MANUAL_BACK;
+				else if(but == but_force_back) click_mode = MODE_FORCE_BACK;
+				else if(but == but_pose)       click_mode = MODE_POSE;
+				
+				if(but == but_localize)
 				{
-					if(p_cur_step != NULL)
-					{
-						dest_clicked = true;
-
-						int mm_x, mm_y;
-						mm_from_unit_coords(p_cur_step->loc.x, p_cur_step->loc.y, &mm_x, &mm_y);
-
-						dest_x = mm_x;
-						dest_y = mm_y;
-						dest_backmode = p_cur_step->backmode;
-						if(p_cur_step->next != NULL)
-							p_cur_step = p_cur_step->next;
-					}
-					num5_pressed = true;
-				}
-			}
-			else
-				num5_pressed = false;
-
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Num4))
-			{
-				if(!num4_pressed)
-				{
-					if(p_cur_step != NULL)
-					{
-						dest_clicked = true;
-
-						int mm_x, mm_y;
-						mm_from_unit_coords(p_cur_step->loc.x, p_cur_step->loc.y, &mm_x, &mm_y);
-
-						dest_x = mm_x;
-						dest_y = mm_y;
-						dest_backmode = p_cur_step->backmode;
-						if(p_cur_step->prev != NULL)
-							p_cur_step = p_cur_step->prev;
-					}
-					num4_pressed = true;
-				}
-			}
-			else
-				num4_pressed = false;
-
-
-			if(sf::Mouse::isButtonPressed(sf::Mouse::Right))
-			{
-				if(right_click_on)
-				{
-					double dx = click_x - prev_click_x; double dy = click_y - prev_click_y;
-					origin_x += dx; origin_y += dy;
+					gui.buttons[but_localize]->pressed = true;
 				}
 				else
 				{
-					prev_click_x = click_x; prev_click_y = click_y;
+					if(gui.buttons[but_localize]->pressed)
+					{
+						gui.buttons[but_localize]->pressed = false;
+						mode_msg(3);
+					}
 				}
 
-				right_click_on = true;
-			}
-			else
-				right_click_on = false;
+				if(but == but_autonomous)
+				{
+					gui.buttons[but_autonomous]->pressed = true;
+				}
+				else
+				{
+					if(gui.buttons[but_autonomous]->pressed)
+					{
+						gui.buttons[but_autonomous]->pressed = false;
+						mode_msg(2);
+					}
+				}
 
+				if(but == but_takecontrol)
+				{
+					gui.buttons[but_takecontrol]->pressed = true;
+				}
+				else
+				{
+					if(gui.buttons[but_takecontrol]->pressed)
+					{
+						mode_msg(1);
+						gui.buttons[but_takecontrol]->pressed = false;
+					}
+				}
+
+				if(but == but_stop)
+				{
+					gui.buttons[but_stop]->pressed = true;
+				}
+				else
+				{
+					if(gui.buttons[but_stop]->pressed)
+					{
+						mode_msg(8);
+						gui.buttons[but_stop]->pressed = false;
+					}
+				}
+
+				if(but == but_free)
+				{
+					gui.buttons[but_free]->pressed = true;
+				}
+				else
+				{
+					if(gui.buttons[but_free]->pressed)
+					{
+						mode_msg(5);
+						gui.buttons[but_free]->pressed = false;
+					}
+				}
+
+				if(but == but_findcharger)
+				{
+					gui.buttons[but_findcharger]->pressed = true;
+				}
+				else
+				{
+					if(gui.buttons[but_findcharger]->pressed)
+					{
+						go_charge_msg(0);
+						gui.buttons[but_findcharger]->pressed = false;
+					}
+				}
+
+
+
+
+			}
+			else if(localPosition.x > 10 && localPosition.x < screen_x-10 && localPosition.y > 10 && localPosition.y < screen_y-10)
+			{
+
+				click_x = (localPosition.x * mm_per_pixel) - origin_x;
+				click_y = (localPosition.y * mm_per_pixel) - origin_y;
+
+				if(sf::Mouse::isButtonPressed(sf::Mouse::Left))
+				{
+//					bool shift_on = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
+					if(!left_click_on)
+					{
+						dest_type = click_mode;
+						dest_x = click_x; dest_y = click_y;
+
+						int back = 0;
+
+						switch(click_mode)
+						{
+							case MODE_ROUTE: {
+								clear_route(&some_route);
+
+								int x = dest_x; int y = dest_y;
+
+								uint8_t test[12] = {56 /*ROUTE*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0};
+
+								if(tcpsock.send(test, 12) != sf::Socket::Done)
+								{
+									printf("Send error\n");
+								}
+							} break;
+
+							case MODE_MANUAL_BACK:
+							back = 1;
+							case MODE_MANUAL_FWD: {
+								clear_route(&some_route);
+
+								int x = dest_x; int y = dest_y;
+
+								uint8_t test[12] = {55 /*DEST*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, back};
+
+								if(tcpsock.send(test, 12) != sf::Socket::Done)
+								{
+									printf("Send error\n");
+								}
+							} break;
+
+							case MODE_FORCE_BACK:
+							back = 1;
+							case MODE_FORCE_FWD: {
+								clear_route(&some_route);
+
+								int x = dest_x; int y = dest_y;
+
+								uint8_t test[12] = {55 /*DEST*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0b100 & back};
+
+								if(tcpsock.send(test, 12) != sf::Socket::Done)
+								{
+									printf("Send error\n");
+								}
+
+							} break;
+
+							case MODE_POSE: {
+								clear_route(&some_route);
+
+								int x = dest_x; int y = dest_y;
+
+								uint8_t test[12] = {55 /*DEST*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, 0b1000};
+
+								if(tcpsock.send(test, 12) != sf::Socket::Done)
+								{
+									printf("Send error\n");
+								}
+
+							} break;
+							default: break;
+						}
+
+					}
+
+					left_click_on = true;
+				}
+				else
+					left_click_on = false;
+
+				if(sf::Mouse::isButtonPressed(sf::Mouse::Right))
+				{
+					if(right_click_on)
+					{
+						double dx = click_x - prev_click_x; double dy = click_y - prev_click_y;
+						origin_x += dx; origin_y += dy;
+					}
+					else
+					{
+						prev_click_x = click_x; prev_click_y = click_y;
+					}
+
+					right_click_on = true;
+				}
+				else
+					right_click_on = false;
+			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::PageUp))
 			{
@@ -976,32 +1227,46 @@ int main(int argc, char** argv)
 				origin_y += (screen_y/2.0)*mm_per_pixel;
 			}
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5))
-			{
-				if(!f5_pressed)
-				{
-					load_all_pages_on_disk(&world);
-					f5_pressed = true;
-				}
-			}
-			else
-				f5_pressed = false;
-			
+//			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F1)) { click_mode = MODE_ROUTE; }
+//			else if(sf::Keyboard::isKeyPressed(sf::Keyboard::F2)) { click_mode = MODE_MANUAL; }
+//			else if(sf::Keyboard::isKeyPressed(sf::Keyboard::F3)) { click_mode = MODE_FORCE; }
+//			else if(sf::Keyboard::isKeyPressed(sf::Keyboard::F4)) { click_mode = MODE_POSE; }
 
-			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F1))
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-				if(!f1_pressed)
-				{
-					uint8_t test[11] = {55, 0, 8,   0,0,1,10,  255,255,254,245};
-					if(tcpsock.send(test, 11) != sf::Socket::Done)
-					{
-						printf("Send error\n");
-					}
-					f1_pressed = true;
-				}
-			}
-			else
-				f1_pressed = false;
+				load_all_pages_on_disk(&world);
+				f_pressed[5] = true;
+			}} else f_pressed[5] = false;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
+			{
+				mode_msg(3);
+				f_pressed[6] = true;
+			}} else f_pressed[6] = false;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F7)) { if(!f_pressed[7]) 
+			{
+				mode_msg(2);
+				f_pressed[7] = true;
+			}} else f_pressed[7] = false;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F8)) { if(!f_pressed[8]) 
+			{
+				mode_msg(1);
+				f_pressed[8] = true;
+			}} else f_pressed[8] = false;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F9)) { if(!f_pressed[9]) 
+			{
+				go_charge_msg(0);
+				f_pressed[9] = true;
+			}} else f_pressed[9] = false;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F10)) { if(!f_pressed[10]) 
+			{
+				mode_msg(8);
+				f_pressed[10] = true;
+			}} else f_pressed[10] = false;
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F11)) { if(!f_pressed[11]) 
+			{
+				mode_msg(5);
+				f_pressed[11] = true;
+			}} else f_pressed[11] = false;
 
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
@@ -1022,25 +1287,6 @@ int main(int argc, char** argv)
 				if(!return_pressed)
 				{
 					return_pressed = 1;
-					if(dest_clicked)
-					{
-						clear_route(&some_route);
-
-						int x = dest_x; int y = dest_y;
-
-						uint8_t test[12] = {56 /*ROUTE*/, 0, 9,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
-							(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff, dest_backmode};
-
-						if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
-							test[0] = 55; // DEST
-
-						if(tcpsock.send(test, 12) != sf::Socket::Done)
-						{
-							printf("Send error\n");
-						}
-
-						dest_clicked = false;
-					}
 				}
 			}
 			else
@@ -1068,6 +1314,11 @@ int main(int argc, char** argv)
 		draw_route_mm(win, &some_route);
 
 		draw_texts(win);
+		sf::RectangleShape rect(sf::Vector2f( gui_box_xs, gui_box_ys));
+		rect.setPosition(gui_box_x, gui_box_y);
+		rect.setFillColor(sf::Color(255,255,255,160));
+		win.draw(rect);
+		gui.draw_all_buttons();
 
 		win.display();
 
