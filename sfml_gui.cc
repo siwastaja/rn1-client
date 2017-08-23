@@ -107,7 +107,7 @@ void sfml_gui::draw_button(int num)
 	t.setFont(font);
 	t.setCharacterSize(buttons[num]->font_size);
 	t.setString(buttons[num]->text);
-	t.setColor(buttons[num]->text_color);
+	t.setFillColor(buttons[num]->text_color);
 	t.setPosition(buttons[num]->x+5+text_offset+button_offset, buttons[num]->y+3+button_offset);
 	window.draw(t);
 }

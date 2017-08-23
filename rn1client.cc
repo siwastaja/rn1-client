@@ -410,7 +410,7 @@ void draw_hwdbg(sf::RenderWindow& win)
 	char buf[500];
 	t.setFont(arial);
 	t.setCharacterSize(11);
-	t.setColor(sf::Color(0,0,0,190));
+	t.setFillColor(sf::Color(0,0,0,190));
 	for(int i = 0; i<10; i++)
 	{
 		sprintf(buf, "dbg[%2i] = %11d (%08x)", i, hwdbg[i], hwdbg[i]);
@@ -434,7 +434,7 @@ void draw_bat_status(sf::RenderWindow& win)
 	int g = vlevel*250.0;
 	if(r > 250) r = 250; if(r<0) r=0;
 	if(g > 250) g = 250; if(g<0) g=0;
-	t.setColor(sf::Color(r,g,0));
+	t.setFillColor(sf::Color(r,g,0));
 	t.setPosition(screen_x-180,screen_y-40);
 	win.draw(t);
 
@@ -442,7 +442,7 @@ void draw_bat_status(sf::RenderWindow& win)
 	{
 		t.setString("charging");
 		t.setCharacterSize(16);
-		t.setColor(sf::Color(200,110,0));
+		t.setFillColor(sf::Color(200,110,0));
 		t.setPosition(screen_x-180,screen_y-80);
 		win.draw(t);
 	}
@@ -451,7 +451,7 @@ void draw_bat_status(sf::RenderWindow& win)
 	{
 		t.setString("charge finished");
 		t.setCharacterSize(16);
-		t.setColor(sf::Color(60,255,60));
+		t.setFillColor(sf::Color(60,255,60));
 		t.setPosition(screen_x-220,screen_y-60);
 		win.draw(t);
 	}
@@ -474,24 +474,24 @@ void draw_texts(sf::RenderWindow& win)
 	sprintf(buf, "robot: x=%d  y=%d  mm  (ang=%.1f deg)", (int)cur_x, (int)cur_y, cur_angle);
 	t.setString(buf);
 	t.setCharacterSize(17);
-	t.setColor(sf::Color(0,0,0,160));
+	t.setFillColor(sf::Color(0,0,0,160));
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-51);
 	win.draw(t);
 
 	sprintf(buf, "cursor: x=%d  y=%d  mm", (int)click_x, (int)click_y);
 	t.setString(buf);
 	t.setCharacterSize(14);
-	t.setColor(sf::Color(0,0,0, 120));
+	t.setFillColor(sf::Color(0,0,0, 120));
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-30);
 	win.draw(t);
 
 	sprintf(buf, "%s", click_mode_names[click_mode]);
 	t.setString(buf);
 	t.setCharacterSize(17);
-	t.setColor(sf::Color(0,0,0,130));
+	t.setFillColor(sf::Color(0,0,0,130));
 	t.setPosition(screen_x/2-bot_box_xs/2+11,screen_y-72);
 	win.draw(t);
-	t.setColor(click_mode_colors[click_mode]);
+	t.setFillColor(click_mode_colors[click_mode]);
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-73);
 	win.draw(t);
 
@@ -845,7 +845,7 @@ int main(int argc, char** argv)
 				int msgid = buf[0];
 				int len = ((int)buf[1]<<8) | buf[2];
 
-			//	printf("msgid=%d len=%d\n", msgid, len);
+				//printf("msgid=%d len=%d\n", msgid, len);
 
 				if(len > 2000) len=2000;
 				uint8_t rxbuf[2048];
@@ -929,6 +929,7 @@ int main(int argc, char** argv)
 						charge_finished = rxbuf[0]&2;
 						bat_voltage = (float)(((int)rxbuf[1]<<8) | rxbuf[2])/1000.0;
 						bat_percentage = rxbuf[3];
+						//printf("bat status %d %d %f %d\n", charging, charge_finished, bat_voltage, bat_percentage);
 					}
 					break;
 
