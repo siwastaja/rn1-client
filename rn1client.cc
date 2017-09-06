@@ -4,6 +4,7 @@
 #include <stropts.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <cstdio>
 #include <cmath>
@@ -25,6 +26,7 @@ world_t world;
 
 
 uint32_t robot_id = 0xacdcabba;
+int cur_world_id = -1;
 
 sf::Font arial;
 
@@ -85,6 +87,45 @@ sf::Color(255, 110, 110, 190),
 sf::Color(255, 110, 110, 190),
 sf::Color(110, 200, 200, 190)
 };
+
+static int rsync_running = 0;
+
+pid_t my_pid;
+static void run_map_rsync()
+{
+	if(rsync_running)
+	{
+		printf("rsync still running\n");
+		return;
+	}
+
+	if((my_pid = fork()) == 0)
+	{
+		static char *argv[] = {"/bin/bash", "/home/hrst/rn1-client/do_map_sync.sh", NULL};
+		if((execve(argv[0], (char **)argv , NULL)) == -1)
+		{
+			printf("run_map_rsync(): execve failed\n");
+		}
+	}
+	else
+	{
+		rsync_running = 1;
+	}
+}
+
+static int poll_map_rsync()
+{
+	if(!rsync_running)
+		return -998;
+
+	int status = 0;
+	if(waitpid(my_pid , &status , WNOHANG) == 0)
+		return -999;
+
+	rsync_running = 0;
+	printf("rsync returned %d\n", status);
+	return status;
+}
 
 
 void page_coords(int mm_x, int mm_y, int* pageidx_x, int* pageidx_y, int* pageoffs_x, int* pageoffs_y)
@@ -315,27 +356,6 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
 			}
-			else if(page->units[x][y].result & UNIT_3D_WALL)
-			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 110;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
-			}
-			else if(page->units[x][y].result & UNIT_DROP)
-			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 110;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 110;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
-			}
-			else if(page->units[x][y].result & UNIT_ITEM)
-			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 130;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 130;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
-			}
 			else if(page->units[x][y].num_obstacles)
 			{
 				int lvl = WALL_LEVEL(page->units[x][y]);
@@ -364,6 +384,34 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 				pixels[4*(y*MAP_PAGE_W+x)+1] = 230;
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 230;
 				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
+			}
+
+			if(!(page->units[x][y].result & UNIT_INVISIBLE_WALL))
+			{
+				if(page->units[x][y].result & UNIT_3D_WALL)
+				{
+					pixels[4*(y*MAP_PAGE_W+x)+0] >>= 1;
+					pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
+					pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
+					int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+				}
+				else if(page->units[x][y].result & UNIT_DROP)
+				{
+					pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
+					pixels[4*(y*MAP_PAGE_W+x)+1] >>= 1;
+					pixels[4*(y*MAP_PAGE_W+x)+2] >>= 0;
+					int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+				}
+				else if(page->units[x][y].result & UNIT_ITEM)
+				{
+					pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
+					pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
+					pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
+					int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+				}
 			}
 		}
 	}
@@ -435,7 +483,7 @@ void draw_bat_status(sf::RenderWindow& win)
 	if(r > 250) r = 250; if(r<0) r=0;
 	if(g > 250) g = 250; if(g<0) g=0;
 	t.setFillColor(sf::Color(r,g,0));
-	t.setPosition(screen_x-180,screen_y-40);
+	t.setPosition(screen_x-180,screen_y-30);
 	win.draw(t);
 
 	if(charging)
@@ -443,7 +491,7 @@ void draw_bat_status(sf::RenderWindow& win)
 		t.setString("charging");
 		t.setCharacterSize(16);
 		t.setFillColor(sf::Color(200,110,0));
-		t.setPosition(screen_x-180,screen_y-80);
+		t.setPosition(screen_x-130,screen_y-50);
 		win.draw(t);
 	}
 
@@ -451,8 +499,8 @@ void draw_bat_status(sf::RenderWindow& win)
 	{
 		t.setString("charge finished");
 		t.setCharacterSize(16);
-		t.setFillColor(sf::Color(60,255,60));
-		t.setPosition(screen_x-220,screen_y-60);
+		t.setFillColor(sf::Color(10,200,50));
+		t.setPosition(screen_x-160,screen_y-50);
 		win.draw(t);
 	}
 }
@@ -485,13 +533,16 @@ void draw_texts(sf::RenderWindow& win)
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-30);
 	win.draw(t);
 
-	sprintf(buf, "%s", click_mode_names[click_mode]);
+	if(rsync_running)
+		sprintf(buf, "Syncing maps...");
+	else
+		sprintf(buf, "%s", click_mode_names[click_mode]);
 	t.setString(buf);
 	t.setCharacterSize(17);
 	t.setFillColor(sf::Color(0,0,0,130));
 	t.setPosition(screen_x/2-bot_box_xs/2+11,screen_y-72);
 	win.draw(t);
-	t.setFillColor(click_mode_colors[click_mode]);
+	t.setFillColor(rsync_running?sf::Color(0,190,20,200):click_mode_colors[click_mode]);
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-73);
 	win.draw(t);
 
@@ -500,10 +551,10 @@ void draw_texts(sf::RenderWindow& win)
 	{
 
 
-		sf::CircleShape circ(dbg_point_r/mm_per_pixel);
-		circ.setOrigin(dbg_point_r/mm_per_pixel, dbg_point_r/mm_per_pixel);
-		circ.setFillColor(sf::Color(dbgpoint_r,dbgpoint_g,dbgpoint_b, 120));
-		circ.setOutlineColor(sf::Color(0,0,0,150));
+		sf::CircleShape circ(2.0*dbg_point_r/mm_per_pixel);
+		circ.setOrigin(2.0*dbg_point_r/mm_per_pixel, 2.0*dbg_point_r/mm_per_pixel);
+		circ.setFillColor(sf::Color(dbgpoint_r,dbgpoint_g,dbgpoint_b, 180));
+		circ.setOutlineColor(sf::Color(255,255,255,255));
 
 		circ.setPosition((dbgpoint_x+origin_x)/mm_per_pixel,(dbgpoint_y+origin_y)/mm_per_pixel);
 		win.draw(circ);
@@ -647,8 +698,8 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 
 			sf::RectangleShape rect(sf::Vector2f((float)hm->unit_size/mm_per_pixel/1.5,(float)hm->unit_size/mm_per_pixel/1.5));
 			rect.setOrigin((float)hm->unit_size/mm_per_pixel/3.0,(float)hm->unit_size/mm_per_pixel/3.0);
-			float x = /*hm->robot_pos.x + */sx*hm->unit_size;
-			float y = /*hm->robot_pos.y + */(sy-hm->ysamples/2)*hm->unit_size;
+			float x = sx*hm->unit_size;
+			float y = (sy-hm->ysamples/2)*hm->unit_size;
 
 			float ang = hm->robot_pos.ang/-360.0*2.0*M_PI;
 			float rotax = x*cos(ang) + y*sin(ang) + hm->robot_pos.x;
@@ -658,7 +709,30 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 					 (rotay + origin_y)/mm_per_pixel);
 			rect.setFillColor(hmap_colors[val+2]);
 			win.draw(rect);
+
+/*
+			float x = sx*hm->unit_size;
+			float y = (sy-hm->ysamples/2)*hm->unit_size;
+
+			float ang = hm->robot_pos.ang/-360.0*2.0*M_PI;
+			float rotax = x*cos(ang) + y*sin(ang) + hm->robot_pos.x;
+			float rotay = -1*x*sin(ang) + y*cos(ang) + hm->robot_pos.y;
+
 			
+			sf::Text t;
+			char tbuf[16];
+			if(val==-100)
+				sprintf(tbuf, "  -");
+			else
+				sprintf(tbuf, "%d", (int32_t)val*2);
+			t.setFont(arial);
+			t.setFillColor(sf::Color(0,0,0,255));
+			t.setString(tbuf);
+			t.setCharacterSize(12);
+			t.setPosition((rotax + origin_x)/mm_per_pixel,
+					 (rotay + origin_y)/mm_per_pixel);
+			win.draw(t);
+*/
 		}
 	}
 }
@@ -717,6 +791,10 @@ void go_charge_msg(uint8_t params)
 	}
 }
 
+#define NUM_DECORS 8
+
+info_state_t cur_info_state = INFO_STATE_UNDEF;
+
 int main(int argc, char** argv)
 {
 	bool f_pressed[13] = {false};
@@ -757,6 +835,18 @@ int main(int argc, char** argv)
 	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "RN#1 Client", sf::Style::Default, sets);
 	win.setFramerateLimit(30);
 
+	sf::Texture decors[NUM_DECORS];
+
+	decors[INFO_STATE_IDLE].loadFromFile    ("decoration/idle.png");
+	decors[INFO_STATE_THINK].loadFromFile   ("decoration/think.png");
+	decors[INFO_STATE_FWD].loadFromFile     ("decoration/fwd.png");
+	decors[INFO_STATE_REV].loadFromFile     ("decoration/rev.png");
+	decors[INFO_STATE_LEFT].loadFromFile    ("decoration/left.png");
+	decors[INFO_STATE_RIGHT].loadFromFile   ("decoration/right.png");
+	decors[INFO_STATE_CHARGING].loadFromFile("decoration/charging.png");
+	decors[INFO_STATE_DAIJUING].loadFromFile("decoration/party.png");
+
+
 
 	sfml_gui gui(win, arial);
 
@@ -774,6 +864,9 @@ int main(int argc, char** argv)
 	int but_pose      = gui.add_button(screen_x-170, 60 + 7*35, 100, 25, "Rotate pose", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_POSE, DEF_BUT_COL_PRESSED, false);
 
 	int but_findcharger = gui.add_button(screen_x-170, 70 + 8*35, 140, 25, "  Find charger", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+
+	int but_worldminus  = gui.add_button(screen_x-170, 70 + 9*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_worldplus  = gui.add_button(screen_x-170+115, 70 + 9*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 
 
 	bool right_click_on = false;
@@ -793,6 +886,10 @@ int main(int argc, char** argv)
 		gui.buttons[but_force_fwd]->pressed =  (click_mode==MODE_FORCE_FWD);
 		gui.buttons[but_force_back]->pressed = (click_mode==MODE_FORCE_BACK);
 		gui.buttons[but_pose]->pressed =       (click_mode==MODE_POSE);
+
+		if(poll_map_rsync() >= 0)
+			load_all_pages_on_disk(&world);
+
 
 		sf::Event event;
 		while (win.pollEvent(event))
@@ -817,6 +914,8 @@ int main(int argc, char** argv)
 				gui.buttons[but_stop]->x = but_start_x;
 				gui.buttons[but_free]->x = but_start_x+75;
 				gui.buttons[but_findcharger]->x = but_start_x;
+				gui.buttons[but_worldminus]->x = but_start_x;
+				gui.buttons[but_worldplus]->x = but_start_x+115;
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
@@ -938,8 +1037,6 @@ int main(int argc, char** argv)
 						clear_route(&some_route);
 						int n_elems = len/9;
 
-						printf("got %d elements\n", n_elems);
-
 						route_start_x = cur_x;
 						route_start_y = cur_y;
 
@@ -952,6 +1049,12 @@ int main(int argc, char** argv)
 							printf("i=%d  back=%d, x=%d, y=%d\n", i, point->backmode, point->loc.x, point->loc.y);
 							DL_APPEND(some_route, point);
 						}
+					}
+					break;
+
+					case 136:
+					{
+						run_map_rsync();
 					}
 					break;
 
@@ -1002,6 +1105,24 @@ int main(int argc, char** argv)
 					}
 					break;
 
+					case 139: // info state
+					{
+						cur_info_state = (info_state_t)rxbuf[0];
+					}
+					break;
+
+
+					case 140: // Robot info
+					{
+						robot_xs = (double)I16FROMBUF(rxbuf, 0);
+						robot_ys = (double)I16FROMBUF(rxbuf, 2);
+						lidar_xoffs = (double)I16FROMBUF(rxbuf, 4);
+						lidar_yoffs = (double)I16FROMBUF(rxbuf, 6);
+
+						printf("Robot size msg: xs=%.1f ys=%.1f lidar_x=%.1f lidar_y=%.1f\n", robot_xs, robot_ys, lidar_xoffs, lidar_yoffs);
+					}
+					break;
+
 					default:
 					break;
 				}
@@ -1021,6 +1142,34 @@ int main(int argc, char** argv)
 				else if(but == but_manu_back)  click_mode = MODE_MANUAL_BACK;
 				else if(but == but_force_back) click_mode = MODE_FORCE_BACK;
 				else if(but == but_pose)       click_mode = MODE_POSE;
+
+				if(but == but_worldplus)
+				{
+					gui.buttons[but_worldplus]->pressed = true;
+					cur_world_id = -1;
+				}
+				else
+				{
+					if(gui.buttons[but_worldplus]->pressed)
+					{
+						gui.buttons[but_worldplus]->pressed = false;
+						mode_msg(9);
+					}
+				}
+
+				if(but == but_worldminus)
+				{
+					gui.buttons[but_worldminus]->pressed = true;
+					cur_world_id = -1;
+				}
+				else
+				{
+					if(gui.buttons[but_worldminus]->pressed)
+					{
+						gui.buttons[but_worldminus]->pressed = false;
+						mode_msg(10);
+					}
+				}
 				
 				if(but == but_localize)
 				{
@@ -1235,7 +1384,10 @@ int main(int argc, char** argv)
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F5)) { if(!f_pressed[5]) 
 			{
-				load_all_pages_on_disk(&world);
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+					run_map_rsync();
+				else
+					load_all_pages_on_disk(&world);
 				f_pressed[5] = true;
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
@@ -1269,6 +1421,10 @@ int main(int argc, char** argv)
 				f_pressed[11] = true;
 			}} else f_pressed[11] = false;
 
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::C))
+			{
+				num_pers_dbgpoints = 0;
+			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
 			{
@@ -1320,6 +1476,49 @@ int main(int argc, char** argv)
 		rect.setFillColor(sf::Color(255,255,255,160));
 		win.draw(rect);
 		gui.draw_all_buttons();
+
+		sf::Text t;
+		char tbuf[256];
+		t.setFont(arial);
+
+		static int fx=0;
+		if(cur_world_id == -1)
+		{
+			fx++;
+			if(fx < 15)
+				sprintf(tbuf, ".  .  .");
+			else if(fx < 30)
+				sprintf(tbuf, " .  .  .");
+			else if(fx < 45)
+			{
+				sprintf(tbuf, "  .  .  .");
+			}
+			else
+			{
+				sprintf(tbuf, "  .  .  .");
+				fx = 0;
+			}
+			t.setFillColor(sf::Color(220,0,0,255));
+		}
+		else
+		{
+			fx = 0;
+			sprintf(tbuf, "W %d", cur_world_id);
+			t.setFillColor(sf::Color(0,200,20,255));
+		}
+		t.setString(tbuf);
+		t.setCharacterSize(17);
+		t.setPosition(screen_x-170+35, 70 + 9*35);
+		win.draw(t);
+
+
+		if(cur_info_state >= 0 && cur_info_state < NUM_DECORS)
+		{
+			sf::Sprite decor_sprite;
+			decor_sprite.setTexture(decors[cur_info_state]);
+			decor_sprite.setPosition(screen_x-180, (cur_info_state==INFO_STATE_DAIJUING)?(screen_y-240):(screen_y-220));
+			win.draw(decor_sprite);
+		}
 
 		win.display();
 
