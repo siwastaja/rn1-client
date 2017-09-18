@@ -53,7 +53,7 @@ int pers_dbgpoint_x[100], pers_dbgpoint_y[100], pers_dbgpoint_r[100], pers_dbgpo
 
 double route_start_x, route_start_y;
 
-typedef enum {MODE_INVALID = -1, MODE_ROUTE = 0, MODE_MANUAL_FWD, MODE_MANUAL_BACK, MODE_FORCE_FWD, MODE_FORCE_BACK, MODE_POSE} click_mode_t;
+typedef enum {MODE_INVALID = -1, MODE_ROUTE = 0, MODE_MANUAL_FWD, MODE_MANUAL_BACK, MODE_FORCE_FWD, MODE_FORCE_BACK, MODE_POSE, MODE_ADDCONSTRAINT, MODE_REMCONSTRAINT} click_mode_t;
 click_mode_t click_mode;
 
 double dest_x, dest_y;
@@ -69,23 +69,27 @@ int charge_finished;
 float bat_voltage;
 int bat_percentage;
 
-const char* click_mode_names[6] =
+const char* click_mode_names[8] =
 {
 	"click to find route",
 	"click to go directly (forward drive)",
 	"click to go directly (REVERSE drive)",
 	"click to force the robot (forward drive)",
 	"click to force the robot (REVERSE drive)",
-	"click to rotate the pose"
+	"click to rotate the pose",
+	"click to add a forbidden place",
+	"click to remove a forbidden place"
 };
 
-const sf::Color click_mode_colors[6] = {
+const sf::Color click_mode_colors[8] = {
 sf::Color(110, 255, 110, 190),
 sf::Color(235, 235, 110, 190),
 sf::Color(235, 235, 110, 190),
 sf::Color(255, 110, 110, 190),
 sf::Color(255, 110, 110, 190),
-sf::Color(110, 200, 200, 190)
+sf::Color(110, 200, 200, 190),
+sf::Color(255, 110, 190, 190),
+sf::Color(255, 110, 190, 190)
 };
 
 static int rsync_running = 0;
@@ -324,8 +328,8 @@ void draw_route_mm(sf::RenderWindow& win, route_unit_t **route)
 	}
 }
 
-//#define WALL_LEVEL(i) (255*((int)(i).num_obstacles)/((int)(i).num_seen))
-#define WALL_LEVEL(i) ((int)(i).num_obstacles*4)
+//#define WALL_LEVEL(i) ((int)(i).num_obstacles*4)
+#define WALL_LEVEL(i) ((int)(i).num_obstacles*2)
 
 void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 {
@@ -338,79 +342,88 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 	{
 		for(int y = 0; y < MAP_PAGE_W; y++)
 		{
-
-			int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
-			if(alpha > 255) alpha=255;
-			//alpha /= 2;
-			if(page->units[x][y].result & UNIT_DBG)
+			if(page->units[x][y].constraints & CONSTRAINT_FORBIDDEN)
 			{
 				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 255;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
-			}
-			else if(page->units[x][y].result & UNIT_INVISIBLE_WALL)
-			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
-			}
-			else if(page->units[x][y].num_obstacles)
-			{
-				int lvl = WALL_LEVEL(page->units[x][y]);
-				if(lvl > 140) lvl = 140;
-				int color = 140 - lvl;
-				if(!(page->units[x][y].result & UNIT_WALL))
-				{
-					color = 255;
-				}
-
-				pixels[4*(y*MAP_PAGE_W+x)+0] = color;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = color;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = color;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
-			}
-			else if(page->units[x][y].result & UNIT_MAPPED)
-			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 240 - sqrt(page->units[x][y].num_visited*200);
+				pixels[4*(y*MAP_PAGE_W+x)+1] = 110;
 				pixels[4*(y*MAP_PAGE_W+x)+2] = 190;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
+				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 			}
 			else
 			{
-				pixels[4*(y*MAP_PAGE_W+x)+0] = 230;
-				pixels[4*(y*MAP_PAGE_W+x)+1] = 230;
-				pixels[4*(y*MAP_PAGE_W+x)+2] = 230;
-				pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
-			}
+//				int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
+				int alpha = (2*(int)page->units[x][y].num_seen) + (255/6);
+				if(alpha > 255) alpha=255;
+				if(page->units[x][y].result & UNIT_DBG)
+				{
+					pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
+					pixels[4*(y*MAP_PAGE_W+x)+1] = 255;
+					pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
+				}
+				else if(page->units[x][y].result & UNIT_INVISIBLE_WALL)
+				{
+					pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
+					pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
+					pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = 255; //alpha;
+				}
+				else if(page->units[x][y].num_obstacles)
+				{
+					int lvl = WALL_LEVEL(page->units[x][y]);
+					if(lvl > 170) lvl = 170;
+					int color = 170 - lvl;
+					if(!(page->units[x][y].result & UNIT_WALL))
+					{
+						color = 255;
+					}
 
-			if(!(page->units[x][y].result & UNIT_INVISIBLE_WALL))
-			{
-				if(page->units[x][y].result & UNIT_3D_WALL)
-				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] >>= 1;
-					pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
-					pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
-					int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+					pixels[4*(y*MAP_PAGE_W+x)+0] = color;
+					pixels[4*(y*MAP_PAGE_W+x)+1] = color;
+					pixels[4*(y*MAP_PAGE_W+x)+2] = color;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
 				}
-				else if(page->units[x][y].result & UNIT_DROP)
+				else if(page->units[x][y].result & UNIT_MAPPED)
 				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
-					pixels[4*(y*MAP_PAGE_W+x)+1] >>= 1;
-					pixels[4*(y*MAP_PAGE_W+x)+2] >>= 0;
-					int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+					pixels[4*(y*MAP_PAGE_W+x)+0] = 255;
+					pixels[4*(y*MAP_PAGE_W+x)+1] = 240 - sqrt(page->units[x][y].num_visited*150);
+					pixels[4*(y*MAP_PAGE_W+x)+2] = 190;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = alpha;
 				}
-				else if(page->units[x][y].result & UNIT_ITEM)
+				else
 				{
-					pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
-					pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
-					pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
-					int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-					pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+					pixels[4*(y*MAP_PAGE_W+x)+0] = 230;
+					pixels[4*(y*MAP_PAGE_W+x)+1] = 230;
+					pixels[4*(y*MAP_PAGE_W+x)+2] = 230;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
+				}
+
+				if(!(page->units[x][y].result & UNIT_INVISIBLE_WALL))
+				{
+					if(page->units[x][y].result & UNIT_3D_WALL)
+					{
+						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 1;
+						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
+						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
+						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+					}
+					else if(page->units[x][y].result & UNIT_DROP)
+					{
+						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
+						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 1;
+						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 0;
+						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+					}
+					else if(page->units[x][y].result & UNIT_ITEM)
+					{
+						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
+						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
+						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 2;
+						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+					}
 				}
 			}
 		}
@@ -610,7 +623,7 @@ void draw_robot(sf::RenderWindow& win)
 
 	win.draw(r);
 
-	if(dest_type > -1 && dest_type < 7)
+	if(dest_type > -1 && dest_type < 8)
 	{
 		const float robot_mark_radius = 200.0;
 		const float robot_mark_radius2 = 40.0;
@@ -628,6 +641,9 @@ void draw_robot(sf::RenderWindow& win)
 		circ2.setOutlineColor(sf::Color(0,0,0,150));
 		circ2.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
 		win.draw(circ2);
+
+		if(dest_type == MODE_ADDCONSTRAINT || dest_type == MODE_REMCONSTRAINT)
+			dest_type = -1;
 	}
 }
 
@@ -832,7 +848,7 @@ int main(int argc, char** argv)
 
 	sf::ContextSettings sets;
 	sets.antialiasingLevel = 8;
-	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "RN#1 Client", sf::Style::Default, sets);
+	sf::RenderWindow win(sf::VideoMode(screen_x,screen_y), "PULUROBOT SLAM", sf::Style::Default, sets);
 	win.setFramerateLimit(30);
 
 	sf::Texture decors[NUM_DECORS];
@@ -868,6 +884,9 @@ int main(int argc, char** argv)
 	int but_worldminus  = gui.add_button(screen_x-170, 70 + 9*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 	int but_worldplus  = gui.add_button(screen_x-170+115, 70 + 9*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 
+	int but_addconstraint  = gui.add_button(screen_x-170, 70 + 10*35, 60, 25, "ADD", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_remconstraint  = gui.add_button(screen_x-170+65, 70 + 10*35, 60, 25, "REM", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+
 
 	bool right_click_on = false;
 	bool left_click_on = false;
@@ -886,6 +905,8 @@ int main(int argc, char** argv)
 		gui.buttons[but_force_fwd]->pressed =  (click_mode==MODE_FORCE_FWD);
 		gui.buttons[but_force_back]->pressed = (click_mode==MODE_FORCE_BACK);
 		gui.buttons[but_pose]->pressed =       (click_mode==MODE_POSE);
+		gui.buttons[but_addconstraint]->pressed = (click_mode==MODE_ADDCONSTRAINT);
+		gui.buttons[but_remconstraint]->pressed = (click_mode==MODE_REMCONSTRAINT);
 
 		if(poll_map_rsync() >= 0)
 			load_all_pages_on_disk(&world);
@@ -916,6 +937,8 @@ int main(int argc, char** argv)
 				gui.buttons[but_findcharger]->x = but_start_x;
 				gui.buttons[but_worldminus]->x = but_start_x;
 				gui.buttons[but_worldplus]->x = but_start_x+115;
+				gui.buttons[but_addconstraint]->x = but_start_x;
+				gui.buttons[but_remconstraint]->x = but_start_x+65;
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
@@ -1142,6 +1165,8 @@ int main(int argc, char** argv)
 				else if(but == but_manu_back)  click_mode = MODE_MANUAL_BACK;
 				else if(but == but_force_back) click_mode = MODE_FORCE_BACK;
 				else if(but == but_pose)       click_mode = MODE_POSE;
+				else if(but == but_addconstraint) click_mode = MODE_ADDCONSTRAINT;
+				else if(but == but_remconstraint) click_mode = MODE_REMCONSTRAINT;
 
 				if(but == but_worldplus)
 				{
@@ -1255,7 +1280,6 @@ int main(int argc, char** argv)
 			}
 			else if(localPosition.x > 10 && localPosition.x < screen_x-10 && localPosition.y > 10 && localPosition.y < screen_y-10)
 			{
-
 				click_x = (localPosition.x * mm_per_pixel) - origin_x;
 				click_y = (localPosition.y * mm_per_pixel) - origin_y;
 
@@ -1331,6 +1355,28 @@ int main(int argc, char** argv)
 									printf("Send error\n");
 								}
 
+							} break;
+
+							case MODE_ADDCONSTRAINT: {
+								int x = click_x; int y = click_y;
+								uint8_t test[11] = {60, 0, 8,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
+
+								if(tcpsock.send(test, 11) != sf::Socket::Done)
+								{
+									printf("Send error\n");
+								}
+							} break;
+
+							case MODE_REMCONSTRAINT: {
+								int x = click_x; int y = click_y;
+								uint8_t test[11] = {61, 0, 8,   (x>>24)&0xff,(x>>16)&0xff,(x>>8)&0xff,(x>>0)&0xff,
+									(y>>24)&0xff, (y>>16)&0xff, (y>>8)&0xff, (y>>0)&0xff};
+
+								if(tcpsock.send(test, 11) != sf::Socket::Done)
+								{
+									printf("Send error\n");
+								}
 							} break;
 							default: break;
 						}
@@ -1417,7 +1463,7 @@ int main(int argc, char** argv)
 			}} else f_pressed[10] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F11)) { if(!f_pressed[11]) 
 			{
-				mode_msg(5);
+				mode_msg(7);
 				f_pressed[11] = true;
 			}} else f_pressed[11] = false;
 
