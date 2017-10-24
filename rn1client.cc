@@ -352,7 +352,8 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 			else
 			{
 //				int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
-				int alpha = (2*(int)page->units[x][y].num_seen) + (255/6);
+//				int alpha = (2*(int)page->units[x][y].num_seen) + (255/6);
+				int alpha = (3*(int)page->units[x][y].num_seen) + (255/4);
 				if(alpha > 255) alpha=255;
 				if(page->units[x][y].result & UNIT_DBG)
 				{
@@ -1463,7 +1464,7 @@ int main(int argc, char** argv)
 			}} else f_pressed[10] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F11)) { if(!f_pressed[11]) 
 			{
-				mode_msg(7);
+				mode_msg(7); // conf charger
 				f_pressed[11] = true;
 			}} else f_pressed[11] = false;
 
