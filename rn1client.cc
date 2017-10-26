@@ -662,10 +662,14 @@ typedef struct
 	int32_t y;
 } point_t;
 */
+
+#define MAX_LIDAR_POINTS 720
+
 typedef struct
 {
 	pos_t robot_pos;
-	point_t scan[180];
+	int n_points;
+	point_t scan[MAX_LIDAR_POINTS];
 } client_lidar_scan_t;
 
 typedef struct
@@ -756,10 +760,8 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 
 void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 {
-	for(int i=0; i < 180; i++)
+	for(int i=0; i < lid->n_points; i++)
 	{
-		if(!lid->scan[i].valid) continue;
-
 		sf::RectangleShape rect(sf::Vector2f(3,3));
 		rect.setOrigin(1.5,1.5);
 		rect.setPosition((lid->scan[i].x+origin_x)/mm_per_pixel, (lid->scan[i].y+origin_y)/mm_per_pixel);
@@ -970,8 +972,8 @@ int main(int argc, char** argv)
 
 				//printf("msgid=%d len=%d\n", msgid, len);
 
-				if(len > 2000) len=2000;
-				uint8_t rxbuf[2048];
+				if(len > 10000) len=10000;
+				uint8_t rxbuf[16384];
 
 				int total_rx = 0;
 				while(total_rx < len)
@@ -1003,21 +1005,42 @@ int main(int argc, char** argv)
 						int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
 						int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
 
-						for(int i=0; i<180; i++)
+						int n_points = (len-10)/2;
+
+						//printf("lowres lidar: n_points = %d\n", n_points);
+						for(int i=0; i<n_points; i++)
 						{
 							int x = (int8_t)rxbuf[10+2*i];
 							int y = (int8_t)rxbuf[10+2*i+1];
-							if(x==0 && y==0)
-							{
-								lidar.scan[i].valid = 0;
-								continue;
-							}
 							lidar.scan[i].valid = 1;
-							lidar.scan[i].x = x*40 + mid_x;
-							lidar.scan[i].y = y*40 + mid_y;
+							lidar.scan[i].x = x*160 + mid_x;
+							lidar.scan[i].y = y*160 + mid_y;
 						}
+						lidar.n_points = n_points;
 					}
 					break;
+
+					case 141:
+					{
+						lidar.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
+						int mid_x = lidar.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,2);
+						int mid_y = lidar.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,6);
+
+						int n_points = (len-10)/4;
+
+						//printf("highres lidar: n_points = %d\n", n_points);
+						for(int i=0; i<n_points; i++)
+						{
+							int x = (int16_t)I16FROMBUF(rxbuf, 10+0+4*i);
+							int y = (int16_t)I16FROMBUF(rxbuf, 10+2+4*i);
+							lidar.scan[i].valid = 1;
+							lidar.scan[i].x = x + mid_x;
+							lidar.scan[i].y = y + mid_y;
+						}
+						lidar.n_points = n_points;
+					}
+					break;
+
 
 					case 132:
 					{
