@@ -1105,15 +1105,15 @@ int main(int argc, char** argv)
 						clear_route(&some_route);
 						int n_elems = len/9;
 
-						route_start_x = cur_x;
-						route_start_y = cur_y;
+						route_start_x = (int32_t)I32FROMBUF(rxbuf,0);
+						route_start_y = (int32_t)I32FROMBUF(rxbuf,4);
 
 						for(int i = 0; i < n_elems; i++)
 						{
 							route_unit_t* point = malloc(sizeof(route_unit_t));
-							point->backmode = rxbuf[i*9+0];
-							point->loc.x = (int32_t)I32FROMBUF(rxbuf,i*9+1);
-							point->loc.y = (int32_t)I32FROMBUF(rxbuf,i*9+5);
+							point->backmode = rxbuf[i*9+8];
+							point->loc.x = (int32_t)I32FROMBUF(rxbuf,i*9+9);
+							point->loc.y = (int32_t)I32FROMBUF(rxbuf,i*9+13);
 							printf("i=%d  back=%d, x=%d, y=%d\n", i, point->backmode, point->loc.x, point->loc.y);
 							DL_APPEND(some_route, point);
 						}
