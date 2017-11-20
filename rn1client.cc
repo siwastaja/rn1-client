@@ -362,6 +362,13 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 					pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
 					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 				}
+				else if(page->units[x][y].result & UNIT_ITEM)
+				{
+					pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
+					pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
+					pixels[4*(y*MAP_PAGE_W+x)+2] = 255;
+					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
+				}
 				else if(page->units[x][y].result & UNIT_INVISIBLE_WALL)
 				{
 					pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
@@ -608,12 +615,14 @@ void draw_map(sf::RenderWindow& win)
 
 void draw_robot(sf::RenderWindow& win)
 {
-	sf::ConvexShape r(5);
+	sf::ConvexShape r(7);
 	r.setPoint(0, sf::Vector2f(0,0));
 	r.setPoint(1, sf::Vector2f(0,robot_ys/mm_per_pixel));
 	r.setPoint(2, sf::Vector2f(robot_xs/mm_per_pixel,robot_ys/mm_per_pixel));
-	r.setPoint(3, sf::Vector2f(1.3*robot_xs/mm_per_pixel,0.5*robot_ys/mm_per_pixel));
-	r.setPoint(4, sf::Vector2f(robot_xs/mm_per_pixel,0));
+	r.setPoint(3, sf::Vector2f(robot_xs/mm_per_pixel,0.70*robot_ys/mm_per_pixel));
+	r.setPoint(4, sf::Vector2f((robot_xs+0.2*robot_ys)/mm_per_pixel,0.5*robot_ys/mm_per_pixel));
+	r.setPoint(5, sf::Vector2f(robot_xs/mm_per_pixel,0.30*robot_ys/mm_per_pixel));
+	r.setPoint(6, sf::Vector2f(robot_xs/mm_per_pixel,0));
 
 	r.setOrigin((0.5*robot_xs+lidar_xoffs)/mm_per_pixel,(0.5*robot_ys+lidar_yoffs)/mm_per_pixel);
 
@@ -674,11 +683,6 @@ typedef struct
 
 typedef struct
 {
-	point_t scan[3];
-} client_sonar_scan_t;
-
-typedef struct
-{
 	pos_t robot_pos;
 	int xsamples;
 	int ysamples;
@@ -687,10 +691,15 @@ typedef struct
 } client_tof3d_hmap_t;
 
 client_lidar_scan_t lidar;
-client_sonar_scan_t sonar;
+#define SONAR_POINTS 6
+sonar_point_t sonar[SONAR_POINTS];
+static int sonar_wr = 0;
+
+
 client_tof3d_hmap_t hmap;
 
-#define HMAP_ALPHA 200
+
+#define HMAP_ALPHA 160
 const sf::Color hmap_colors[8] = {
 /*-2*/ sf::Color(200,   0, 255, HMAP_ALPHA),
 /*-1*/ sf::Color(  0,   0, 255, HMAP_ALPHA),
@@ -770,17 +779,34 @@ void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 	}
 }
 
-void draw_sonar(sf::RenderWindow& win, client_sonar_scan_t* son)
+void draw_sonar(sf::RenderWindow& win)
 {
-	for(int i=0; i < 3; i++)
+	for(int i=0; i < SONAR_POINTS; i++)
 	{
-		if(!son->scan[i].valid) continue;
+		int c = sonar[i].c;
+		if(c==0) continue;
 
 		sf::RectangleShape rect(sf::Vector2f(6,6));
 		rect.setOrigin(3,3);
-		rect.setPosition((son->scan[i].x+origin_x)/mm_per_pixel, (son->scan[i].y+origin_y)/mm_per_pixel);
-		rect.setFillColor(sf::Color(0, 0, 70, 90));
+		rect.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (sonar[i].y+origin_y)/mm_per_pixel);
+		if(c < -2) c = -2;
+		else if(c > 5) c = 5;
+		rect.setFillColor(hmap_colors[c+2]);
 		win.draw(rect);
+
+		#if SONAR_POINTS < 10
+
+		sf::Text t;
+		char tbuf[16];
+		sprintf(tbuf, "%d", sonar[i].z);
+		t.setFont(arial);
+		t.setFillColor(sf::Color(0,0,0,255));
+		t.setString(tbuf);
+		t.setCharacterSize(9);
+		t.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (sonar[i].y+origin_y)/mm_per_pixel);
+		win.draw(t);
+
+		#endif
 	}
 }
 
@@ -1051,21 +1077,16 @@ int main(int argc, char** argv)
 					}
 					break;
 
-					case 133: // sonar points
+					case 133: // sonar point
 					{
-						for(int i=0; i<3; i++)
-						{
-							if(rxbuf[0] & (1<<i))
-							{
-								sonar.scan[i].valid = 1;
-								sonar.scan[i].x = (int32_t)I32FROMBUF(rxbuf,1+8*i);
-								sonar.scan[i].y = (int32_t)I32FROMBUF(rxbuf,5+8*i);
-							}
-							else
-							{
-								sonar.scan[i].valid = 0;
-							}
-						}
+						sonar[sonar_wr].x = (int32_t)I32FROMBUF(rxbuf,0);
+						sonar[sonar_wr].y = (int32_t)I32FROMBUF(rxbuf,4);
+						sonar[sonar_wr].z = (int32_t)I16FROMBUF(rxbuf,8);
+						sonar[sonar_wr].c = rxbuf[10];
+
+						//printf("SONAR: x=%d   y=%d   c=%d\n", sonar[sonar_wr].x, sonar[sonar_wr].y, sonar[sonar_wr].c);
+
+						sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
 					}
 					break;
 
@@ -1532,7 +1553,7 @@ int main(int argc, char** argv)
 		draw_robot(win);
 
 		draw_lidar(win, &lidar);
-		draw_sonar(win, &sonar);
+		draw_sonar(win);
 		draw_tof3d_hmap(win, &hmap);
 
 		draw_hwdbg(win);
@@ -1593,6 +1614,15 @@ int main(int argc, char** argv)
 		win.display();
 
 		usleep(100);
+
+		static int sonar_fade = 0;
+		if(++sonar_fade > 10)
+		{
+			sonar_fade = 0;
+			sonar[sonar_wr].c = 0;
+			sonar_wr++; if(sonar_wr >= SONAR_POINTS) sonar_wr = 0;
+		}
+
 
 	}
 	return 0;
