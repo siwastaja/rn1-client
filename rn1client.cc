@@ -67,6 +67,7 @@ double lidar_yoffs = 0.0;
 int charging;
 int charge_finished;
 float bat_voltage;
+float cha_voltage;
 int bat_percentage;
 
 const char* click_mode_names[8] =
@@ -504,7 +505,20 @@ void draw_bat_status(sf::RenderWindow& win)
 	if(r > 250) r = 250; if(r<0) r=0;
 	if(g > 250) g = 250; if(g<0) g=0;
 	t.setFillColor(sf::Color(r,g,0));
-	t.setPosition(screen_x-180,screen_y-30);
+	t.setPosition(screen_x-180,screen_y-45);
+	win.draw(t);
+
+	sprintf(buf, "charger input %2.2f V", cha_voltage);
+	t.setString(buf);
+	t.setCharacterSize(14);
+	if(cha_voltage < 1.0)
+		t.setFillColor(sf::Color(50,50,255));
+	else if(cha_voltage < 22.0 || cha_voltage > 27.0)
+		t.setFillColor(sf::Color(255,0,0));
+	else
+		t.setFillColor(sf::Color(0,255,0));
+
+	t.setPosition(screen_x-180,screen_y-20);
 	win.draw(t);
 
 	if(charging)
@@ -512,7 +526,7 @@ void draw_bat_status(sf::RenderWindow& win)
 		t.setString("charging");
 		t.setCharacterSize(16);
 		t.setFillColor(sf::Color(200,110,0));
-		t.setPosition(screen_x-130,screen_y-50);
+		t.setPosition(screen_x-130,screen_y-65);
 		win.draw(t);
 	}
 
@@ -521,7 +535,7 @@ void draw_bat_status(sf::RenderWindow& win)
 		t.setString("charge finished");
 		t.setCharacterSize(16);
 		t.setFillColor(sf::Color(10,200,50));
-		t.setPosition(screen_x-160,screen_y-50);
+		t.setPosition(screen_x-160,screen_y-65);
 		win.draw(t);
 	}
 }
