@@ -1110,6 +1110,7 @@ int main(int argc, char** argv)
 						charge_finished = rxbuf[0]&2;
 						bat_voltage = (float)(((int)rxbuf[1]<<8) | rxbuf[2])/1000.0;
 						bat_percentage = rxbuf[3];
+						cha_voltage = (float)(((int)rxbuf[4]<<8) | rxbuf[5])/1000.0;
 						//printf("bat status %d %d %f %d\n", charging, charge_finished, bat_voltage, bat_percentage);
 					}
 					break;
