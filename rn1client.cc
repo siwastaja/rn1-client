@@ -1,3 +1,34 @@
+/*
+	PULUROBOT RN1-CLIENT  Stand-alone GUI client prototype
+
+	(c) 2017-2018 Pulu Robotics and other contributors
+	Maintainer: Antti Alhonen <antti.alhonen@iki.fi>
+
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License version 2, as 
+	published by the Free Software Foundation.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	GNU General Public License version 2 is supplied in file LICENSING.
+
+
+
+	This program takes direct TCP connection to the robot:
+	./rn1client robot_hostname robot_port
+
+	Needs code quality improvement. I haven't been able to decide whether this is 
+	a prototype-to-be-replaced, or a maintained application. It works nevertheless :-).
+
+	Library dependencies:
+	SFML (at least 2.4.2 works; SFML tends to have slight compatibility breaks every now and then)
+
+*/
+
+
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -354,7 +385,7 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 			{
 //				int alpha = (30*(int)page->units[x][y].num_seen)/3 + (255/3);
 //				int alpha = (2*(int)page->units[x][y].num_seen) + (255/6);
-				int alpha = (3*(int)page->units[x][y].num_seen) + (255/4);
+				int alpha = (8*(int)page->units[x][y].num_seen) + (255/2);
 				if(alpha > 255) alpha=255;
 				if(page->units[x][y].result & UNIT_DBG)
 				{
