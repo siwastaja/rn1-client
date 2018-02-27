@@ -56,6 +56,10 @@
 world_t world;
 
 
+int pict_id, pict_bpp, pict_xs, pict_ys;
+uint8_t pict_data[1000000];
+
+
 uint32_t robot_id = 0xacdcabba;
 int cur_world_id = -1;
 
@@ -641,6 +645,43 @@ void draw_texts(sf::RenderWindow& win)
 
 }
 
+void draw_picture(sf::RenderWindow& win)
+{
+	if(pict_id < 0 || pict_xs < 1 || pict_ys < 1 || pict_xs > 500 || pict_ys > 500)
+	{
+		return;
+	}
+
+	static uint8_t pixels[500*500*4];
+	if(pict_bpp == 1)
+	{
+		for(int i=0; i<pict_xs*pict_ys; i++)
+		{
+			pixels[4*i+0] = pict_data[i];
+			pixels[4*i+1] = pict_data[i];
+			pixels[4*i+2] = pict_data[i];
+			pixels[4*i+3] = 255;
+		}
+	}
+	pixels[0] = 255;
+	pixels[1] = 0;
+	pixels[2] = 0;
+	pixels[3] = 255;
+
+	float scale = 4.0;
+
+	sf::Texture t;
+	t.create(pict_xs, pict_ys);
+	t.setSmooth(false);
+	t.update(pixels);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setPosition(10, 10);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	win.draw(sprite);
+}
+
+
 void draw_map(sf::RenderWindow& win)
 {
 	for(int x = 0; x < MAP_W; x++)
@@ -1043,8 +1084,8 @@ int main(int argc, char** argv)
 
 				//printf("msgid=%d len=%d\n", msgid, len);
 
-				if(len > 10000) len=10000;
-				uint8_t rxbuf[16384];
+				if(len > 100000) len=100000;
+				uint8_t rxbuf[100000];
 
 				int total_rx = 0;
 				while(total_rx < len)
@@ -1236,6 +1277,23 @@ int main(int argc, char** argv)
 						printf("Robot size msg: xs=%.1f ys=%.1f lidar_x=%.1f lidar_y=%.1f\n", robot_xs, robot_ys, lidar_xoffs, lidar_yoffs);
 					}
 					break;
+
+					case 142: // Picture
+					{
+						pict_id = I16FROMBUF(rxbuf, 0);
+						pict_bpp = rxbuf[2];
+						pict_xs = I16FROMBUF(rxbuf, 3);
+						pict_ys = I16FROMBUF(rxbuf, 5);
+						printf("Picture msg: id=%u bytes_per_pixel=%u xs=%u ys=%u\n", pict_id, pict_bpp, pict_xs, pict_ys);
+						int pict_size = pict_bpp*pict_xs*pict_ys;
+						if(pict_size > 100000)
+						{
+							printf("Ignoring oversized image.\n");
+							pict_id = -1;
+						}
+						else
+							memcpy(pict_data, &rxbuf[7], pict_size);
+					}
 
 					default:
 					break;
@@ -1613,6 +1671,9 @@ int main(int argc, char** argv)
 		rect.setFillColor(sf::Color(255,255,255,160));
 		win.draw(rect);
 		gui.draw_all_buttons();
+
+
+		draw_picture(win);
 
 		sf::Text t;
 		char tbuf[256];
