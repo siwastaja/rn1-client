@@ -653,7 +653,7 @@ void draw_picture(sf::RenderWindow& win)
 	}
 
 	static uint8_t pixels[500*500*4];
-	if(pict_bpp == 1)
+/*	if(pict_bpp == 1)
 	{
 		for(int i=0; i<pict_xs*pict_ys; i++)
 		{
@@ -663,10 +663,41 @@ void draw_picture(sf::RenderWindow& win)
 			pixels[4*i+3] = 255;
 		}
 	}
-	pixels[0] = 255;
-	pixels[1] = 0;
-	pixels[2] = 0;
-	pixels[3] = 255;
+*/
+
+	if(pict_id == 99 || pict_id == 2 || pict_id == 3 || pict_id == 4) // ignore map
+	{
+		for(int i=0; i<pict_xs*pict_ys; i++)
+		{
+			if(pict_data[i])
+			{
+				pixels[4*i+0] = 255;
+				pixels[4*i+1] = 128;
+				pixels[4*i+2] = 50;
+			}
+			else
+			{
+				pixels[4*i+0] = 0;
+				pixels[4*i+1] = 0;
+				pixels[4*i+2] = 0;
+			}
+			pixels[4*i+3] = 255;
+		}
+	}
+	else if(pict_id == 1 || pict_id == 7 || pict_id == 9) // amplitudes
+	{
+		for(int i=0; i<pict_xs*pict_ys; i++)
+		{
+			pixels[4*i+0] = pict_data[i];
+			pixels[4*i+1] = pict_data[i];
+			pixels[4*i+2] = pict_data[i];
+			pixels[4*i+3] = 255;
+		}
+	}
+	else if(pict_id == 6 || pict_id == 8 || pict_id == 10) // distances
+	{
+
+	}
 
 	float scale = 4.0;
 
