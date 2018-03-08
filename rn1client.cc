@@ -56,7 +56,7 @@
 world_t world;
 
 
-int pict_id, pict_bpp, pict_xs, pict_ys;
+int pict_id, pict_bpp, pict_xs, pict_ys, dbg_boost;
 uint8_t pict_data[1000000];
 
 
@@ -665,7 +665,45 @@ void draw_picture(sf::RenderWindow& win)
 	}
 */
 
-	if(pict_id == 99 || pict_id == 2 || pict_id == 3 || pict_id == 4) // ignore map
+	sf::Vector2i m = sf::Mouse::getPosition(win);
+
+
+	float scale = 5.0;
+
+	sf::Texture t;
+	t.create(pict_xs, pict_ys);
+	t.setSmooth(false);
+	sf::Sprite sprite;
+
+	float mx = m.x;
+	float my = m.y;
+
+	int pic_x = 15, pic_y;
+	if(pict_id==100)
+	{
+		pic_y = 15+scale*pict_ys+10;
+		mx -= 15; my -= 15+scale*pict_ys+10;
+	}
+	else if(pict_id==101 || pict_id==110)
+	{
+		pic_y = 15+scale*2*pict_ys+20;
+		mx -= 15; my -= 15+2*scale*pict_ys+20;
+	}
+	else
+	{
+		pic_y = 15;
+		mx -= 15; my -= 15;
+	}
+	sprite.setPosition(pic_x, pic_y);
+
+	mx /= scale;
+	my /= scale;
+
+	printf("mx = %f  my = %f\n", mx, my);
+
+	int process_as_dist = 0;
+
+	if(pict_id == 1 || pict_id == 2 || pict_id == 3 || pict_id == 4) // ignore map
 	{
 		for(int i=0; i<pict_xs*pict_ys; i++)
 		{
@@ -684,32 +722,111 @@ void draw_picture(sf::RenderWindow& win)
 			pixels[4*i+3] = 255;
 		}
 	}
-	else if(pict_id == 1 || pict_id == 7 || pict_id == 9) // amplitudes
+	else if(pict_id == 101 || pict_id == 5 || pict_id == 7 || pict_id == 9) // amplitudes
 	{
 		for(int i=0; i<pict_xs*pict_ys; i++)
 		{
-			pixels[4*i+0] = pict_data[i];
-			pixels[4*i+1] = pict_data[i];
-			pixels[4*i+2] = pict_data[i];
+			int val = pict_data[i];
+			if(dbg_boost) { val*=4; if(val>255) val=255;}
+			pixels[4*i+0] = val;
+			pixels[4*i+1] = val;
+			pixels[4*i+2] = val;
 			pixels[4*i+3] = 255;
 		}
 	}
-	else if(pict_id == 6 || pict_id == 8 || pict_id == 10) // distances
+	else if(pict_id == 100 || pict_id == 6 || pict_id == 8 || pict_id == 10 || pict_id == 110) // distances
 	{
+		process_as_dist = 1;
+		for(int i=0; i<pict_xs*pict_ys; i++)
+		{
+
+			int dist = ((uint16_t*)pict_data)[i];
+			int r, g, b;
+
+			if(dist == 0)
+			{
+				r = 0; g = 0; b = 50;
+			}
+			else if(dist > 6000)
+			{
+				r = 200; g = 200; b = 200;
+			}
+			else
+			{
+				float blue_dist=5000;
+				float percolor = blue_dist/3.0;
+
+				float mm = dist;
+				float f_r = 1.0 - fabs(mm-0*percolor)/percolor;
+				float f_g = 1.0 - fabs(mm-1*percolor)/percolor;
+				float f_b = 1.0 - fabs(mm-2*percolor)/percolor;
+
+				r = f_r*256.0; if(r<0) r=0; else if(r>255) r=255;
+				g = f_g*256.0; if(g<0) g=0; else if(g>255) g=255;
+				b = f_b*256.0; if(b<0) b=0; else if(b>255) b=255;
+
+			}
+
+			pixels[4*i+0] = r;
+			pixels[4*i+1] = g;
+			pixels[4*i+2] = b;
+			pixels[4*i+3] = 255;
+
+		}
+	}
+
+	sf::Text te2;
+	char tbuf2[16];
+	if(mx >= 0 && mx < pict_xs && my >= 0 && my <= pict_ys)
+	{
+		int imy = (int)my;
+		int imx = (int)mx;
+		pixels[4*(imy*pict_xs+imx)+0] = 128;
+		pixels[4*(imy*pict_xs+imx)+1] = 255;
+		pixels[4*(imy*pict_xs+imx)+2] = 255;
+		pixels[4*(imy*pict_xs+imx)+3] = 255;
+
+		int val;
+		if(process_as_dist)
+			val = ((uint16_t*)pict_data)[imy*pict_xs+imx];
+		else
+			val = pict_data[imy*pict_xs+imx];
+
+
+		sprintf(tbuf2, "(%d,%d)=%d", imx, imy, val);
+		te2.setFont(arial);
+		te2.setFillColor(sf::Color(0,0,0,255));
+		te2.setString(tbuf2);
+		te2.setCharacterSize(12);
+		te2.setPosition(pic_x+scale*mx+8, pic_y+scale*my-5);
 
 	}
 
-	float scale = 4.0;
-
-	sf::Texture t;
-	t.create(pict_xs, pict_ys);
-	t.setSmooth(false);
 	t.update(pixels);
-	sf::Sprite sprite;
 	sprite.setTexture(t);
-	sprite.setPosition(10, 10);
 	sprite.setScale(sf::Vector2f(scale, scale));
 	win.draw(sprite);
+	win.draw(te2);
+	te2.setFillColor(sf::Color(255,255,255,255));
+	te2.setPosition(pic_x+scale*mx+8-1, pic_y+scale*my-5-1);
+	win.draw(te2);
+
+	{
+		sf::Text te;
+		char tbuf[16];
+		sprintf(tbuf, "ID=%d", pict_id);
+		te.setFont(arial);
+		te.setFillColor(sf::Color(0,0,0,255));
+		te.setString(tbuf);
+		te.setCharacterSize(9);
+		te.setPosition(20,2);
+		win.draw(te);
+	}
+
+
+
+	pict_id = -1;
+
 }
 
 
@@ -750,27 +867,27 @@ void draw_robot(sf::RenderWindow& win)
 
 	win.draw(r);
 
-	if(dest_type > -1 && dest_type < 8)
+	if(static_cast<int>(dest_type) > -1 && static_cast<int>(dest_type) < 8)
 	{
 		const float robot_mark_radius = 200.0;
 		const float robot_mark_radius2 = 40.0;
 		sf::CircleShape circ(robot_mark_radius/mm_per_pixel);
 		circ.setOrigin(robot_mark_radius/(mm_per_pixel), robot_mark_radius/(mm_per_pixel));
-		circ.setFillColor(click_mode_colors[dest_type]);
+		circ.setFillColor(click_mode_colors[static_cast<int>(dest_type)]);
 		circ.setOutlineThickness(1.0);
 		circ.setOutlineColor(sf::Color(0,0,0,100));
 		circ.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
 		win.draw(circ);
 		sf::CircleShape circ2(robot_mark_radius2/mm_per_pixel);
 		circ2.setOrigin(robot_mark_radius2/(mm_per_pixel), robot_mark_radius2/(mm_per_pixel));
-		circ2.setFillColor(click_mode_colors[dest_type]);
+		circ2.setFillColor(click_mode_colors[static_cast<int>(dest_type)]);
 		circ2.setOutlineThickness(1.0);
 		circ2.setOutlineColor(sf::Color(0,0,0,150));
 		circ2.setPosition((dest_x+origin_x)/mm_per_pixel,(dest_y+origin_y)/mm_per_pixel);
 		win.draw(circ2);
 
 		if(dest_type == MODE_ADDCONSTRAINT || dest_type == MODE_REMCONSTRAINT)
-			dest_type = -1;
+			dest_type = MODE_INVALID;
 	}
 }
 
@@ -1293,7 +1410,7 @@ int main(int argc, char** argv)
 
 					case 139: // info state
 					{
-						cur_info_state = (info_state_t)rxbuf[0];
+						cur_info_state = static_cast<info_state_t>(rxbuf[0]);
 					}
 					break;
 
@@ -1650,6 +1767,11 @@ int main(int argc, char** argv)
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::C))
 			{
 				num_pers_dbgpoints = 0;
+				dbg_boost = 0;
+			}
+			if(sf::Keyboard::isKeyPressed(sf::Keyboard::B))
+			{
+				dbg_boost = 1;
 			}
 
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
@@ -1741,10 +1863,10 @@ int main(int argc, char** argv)
 		win.draw(t);
 
 
-		if(cur_info_state >= 0 && cur_info_state < NUM_DECORS)
+		if(static_cast<int>(cur_info_state) >= 0 && static_cast<int>(cur_info_state) < NUM_DECORS)
 		{
 			sf::Sprite decor_sprite;
-			decor_sprite.setTexture(decors[cur_info_state]);
+			decor_sprite.setTexture(decors[static_cast<int>(cur_info_state)]);
 			decor_sprite.setPosition(screen_x-180, (cur_info_state==INFO_STATE_DAIJUING)?(screen_y-240):(screen_y-220));
 			win.draw(decor_sprite);
 		}
