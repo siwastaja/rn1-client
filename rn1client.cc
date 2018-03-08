@@ -1345,7 +1345,7 @@ int main(int argc, char** argv)
 
 						for(int i = 0; i < n_elems; i++)
 						{
-							route_unit_t* point = malloc(sizeof(route_unit_t));
+							route_unit_t* point = (route_unit_t*)malloc(sizeof(route_unit_t));
 							point->backmode = rxbuf[i*9+8];
 							point->loc.x = (int32_t)I32FROMBUF(rxbuf,i*9+9);
 							point->loc.y = (int32_t)I32FROMBUF(rxbuf,i*9+13);
