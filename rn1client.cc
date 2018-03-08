@@ -32,7 +32,6 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <stropts.h>
 #include <sys/select.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
