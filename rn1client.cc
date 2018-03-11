@@ -1470,7 +1470,7 @@ int main(int argc, char** argv)
 						hmap.unit_size = rxbuf[14];
 
 						memcpy(hmap.data, &rxbuf[15], hmap.xsamples*hmap.ysamples);
-						printf("Got %d x %d hmap at %d, %d, %d.\n", hmap.xsamples, hmap.ysamples, hmap.robot_pos.ang, hmap.robot_pos.x, hmap.robot_pos.y);
+						//printf("Got %d x %d hmap at %d, %d, %d.\n", hmap.xsamples, hmap.ysamples, hmap.robot_pos.ang, hmap.robot_pos.x, hmap.robot_pos.y);
 					}
 					break;
 
