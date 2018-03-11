@@ -920,7 +920,7 @@ typedef struct
 	int xsamples;
 	int ysamples;
 	int unit_size;
-	int8_t data[100*100];
+	int8_t data[256*256];
 } client_tof3d_hmap_t;
 
 client_lidar_scan_t lidar;
@@ -933,31 +933,92 @@ client_tof3d_hmap_t hmap;
 
 
 #define HMAP_ALPHA 160
-const sf::Color hmap_colors[8] = {
-/*-2*/ sf::Color(200,   0, 255, HMAP_ALPHA),
-/*-1*/ sf::Color(  0,   0, 255, HMAP_ALPHA),
-/* 0*/ sf::Color(  0,   0,   0, HMAP_ALPHA/3),
-/*+1*/ sf::Color(255, 255, 255, HMAP_ALPHA/2),
-/*+2*/ sf::Color(  0, 200, 200, HMAP_ALPHA),
-/*+3*/ sf::Color(  0, 200,   0, HMAP_ALPHA),
-/*+4*/ sf::Color(100, 200,   0, HMAP_ALPHA),
-/*+5*/ sf::Color(200, 200,   0, HMAP_ALPHA)
+
+#define TOF3D_WALL           7 
+#define TOF3D_BIG_ITEM       6 
+#define TOF3D_BIG_DROP       5
+#define TOF3D_SMALL_ITEM     4 
+#define TOF3D_SMALL_DROP     3
+#define TOF3D_THRESHOLD      2   
+#define TOF3D_FLOOR          1
+#define TOF3D_UNSEEN         0
+
+#define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
+
+static const uint32_t hmap_colors[8] = {
+/* 0 UNSEEN     */ RGBA32(128,128,128, 0),
+/* 1 FLOOR      */ RGBA32(150,255,150, HMAP_ALPHA/2),
+/* 2 THRESHOLD  */ RGBA32(  0,200,200, HMAP_ALPHA),
+/* 3 SMALL_DROP */ RGBA32( 50,  0,200, HMAP_ALPHA),
+/* 4 SMALL_ITEM */ RGBA32(  0,255,  0, HMAP_ALPHA),
+/* 5 BIG_DROP   */ RGBA32(220,  0,220, HMAP_ALPHA),
+/* 6 BIG_ITEM   */ RGBA32(255,  0,  0, HMAP_ALPHA),
+/* 7 WALL       */ RGBA32(200,200,  0, HMAP_ALPHA)
 };
+
 
 
 void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 {
+	if(hm->xsamples == 0 || hm->ysamples == 0)
+		return;
+
+	if(hm->xsamples > 256 || hm->ysamples > 256)
+	{
+		printf("Invalid hmap size\n");
+		return;
+	}
+
+	static uint32_t pixels[256*256];
+
+
+	float scale = (float)hm->unit_size/mm_per_pixel;
+
 	for(int sy=0; sy < hm->ysamples; sy++)
 	{
 		for(int sx=0; sx < hm->xsamples; sx++)
 		{
-			int8_t val = hm->data[sy*hm->xsamples+sx];
-			if(val == 0) continue;
-			if(val < -2 || val > 5)
+			uint8_t val = hm->data[sy*hm->xsamples+sx];
+			if(val > 7)
 			{
 				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
 				continue;
 			}
+			pixels[sy*hm->xsamples+sx] = hmap_colors[val];
+		}
+	}
+
+	float ang = hm->robot_pos.ang;
+
+	sf::Texture t;
+	t.create(hm->xsamples, hm->ysamples);
+	t.setSmooth(false);
+	t.update((uint8_t*)pixels);
+	sf::Sprite sprite;
+	sprite.setTexture(t);
+	sprite.setOrigin(hm->xsamples/2.0, hm->ysamples/2.0);
+	sprite.setRotation(ang);
+	sprite.setPosition((hm->robot_pos.x+origin_x)/mm_per_pixel, (hm->robot_pos.y+origin_y)/mm_per_pixel);
+	sprite.setScale(sf::Vector2f(scale, scale));
+	win.draw(sprite);
+
+}
+
+
+/*
+void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
+{
+	for(int sy=0; sy < hm->ysamples; sy+=1)
+	{
+		for(int sx=0; sx < hm->xsamples; sx+=1)
+		{
+			int8_t val = hm->data[sy*hm->xsamples+sx];
+			if(val == 0) continue;
+//			if(val < -2 || val > 5)
+//			{
+//				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
+//				continue;
+//			}
 
 			sf::RectangleShape rect(sf::Vector2f((float)hm->unit_size/mm_per_pixel/1.5,(float)hm->unit_size/mm_per_pixel/1.5));
 			rect.setOrigin((float)hm->unit_size/mm_per_pixel/3.0,(float)hm->unit_size/mm_per_pixel/3.0);
@@ -970,35 +1031,39 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 
 			rect.setPosition((rotax + origin_x)/mm_per_pixel,
 					 (rotay + origin_y)/mm_per_pixel);
-			rect.setFillColor(hmap_colors[val+2]);
+//			rect.setFillColor(hmap_colors[val+2]);
+
+			int mm = val*20;
+
+			int color = mm/5; if(color > 255) color = 255; else if(color < -255) color = -255;
+			if(color<0)
+				rect.setFillColor(sf::Color(-1*color,0,0,255));
+			else
+				rect.setFillColor(sf::Color(0,color,0,255));
+
+			//rect.setFillColor(sf::Color(128,128+val,128,128));
 			win.draw(rect);
 
-/*
-			float x = sx*hm->unit_size;
-			float y = (sy-hm->ysamples/2)*hm->unit_size;
-
-			float ang = hm->robot_pos.ang/-360.0*2.0*M_PI;
-			float rotax = x*cos(ang) + y*sin(ang) + hm->robot_pos.x;
-			float rotay = -1*x*sin(ang) + y*cos(ang) + hm->robot_pos.y;
-
-			
-			sf::Text t;
-			char tbuf[16];
-			if(val==-100)
-				sprintf(tbuf, "  -");
-			else
-				sprintf(tbuf, "%d", (int32_t)val*2);
-			t.setFont(arial);
-			t.setFillColor(sf::Color(0,0,0,255));
-			t.setString(tbuf);
-			t.setCharacterSize(12);
-			t.setPosition((rotax + origin_x)/mm_per_pixel,
-					 (rotay + origin_y)/mm_per_pixel);
-			win.draw(t);
-*/
+			if(sy%4==0 && sx%4==0)
+			{
+				sf::Text t;
+				char tbuf[16];
+	//			if(val==-100)
+	//				sprintf(tbuf, "  -");
+	//			else
+					sprintf(tbuf, "%d", (int32_t)val*2);
+				t.setFont(arial);
+				t.setFillColor(sf::Color(0,0,0,128));
+				t.setString(tbuf);
+				t.setCharacterSize(8);
+				t.setPosition((rotax + origin_x)/mm_per_pixel,
+						 (rotay + origin_y)/mm_per_pixel);
+				win.draw(t);
+			}
 		}
 	}
 }
+*/
 
 void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 {
@@ -1022,9 +1087,7 @@ void draw_sonar(sf::RenderWindow& win)
 		sf::RectangleShape rect(sf::Vector2f(6,6));
 		rect.setOrigin(3,3);
 		rect.setPosition((sonar[i].x+origin_x)/mm_per_pixel, (sonar[i].y+origin_y)/mm_per_pixel);
-		if(c < -2) c = -2;
-		else if(c > 5) c = 5;
-		rect.setFillColor(hmap_colors[c+2]);
+		rect.setFillColor(sf::Color(50,50,200));
 		win.draw(rect);
 
 		#if SONAR_POINTS < 10
@@ -1231,7 +1294,11 @@ int main(int argc, char** argv)
 
 				//printf("msgid=%d len=%d\n", msgid, len);
 
-				if(len > 100000) len=100000;
+				if(len > 100000)
+				{
+					printf("Error: msg too long.\n");
+					len=100000;
+				}
 				uint8_t rxbuf[100000];
 
 				int total_rx = 0;
@@ -1389,21 +1456,21 @@ int main(int argc, char** argv)
 
 					case 138: // 3D TOF HMAP
 					{
-						hmap.xsamples = rxbuf[0];
-						hmap.ysamples = rxbuf[1];
+						hmap.xsamples = I16FROMBUF(rxbuf, 0);
+						hmap.ysamples = I16FROMBUF(rxbuf, 2);
 
-						if(hmap.xsamples < 1 || hmap.xsamples > 99 || hmap.ysamples < 1 || hmap.ysamples > 99)
+						if(hmap.xsamples < 1 || hmap.xsamples > 256 || hmap.ysamples < 1 || hmap.ysamples > 256)
 						{
 							printf("Invalid 3D TOF HMAP xsamples * ysamples (%d * %d)\n", hmap.xsamples, hmap.ysamples);
 							break;
 						}
-						hmap.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 2))/65536.0 * 360.0;
-						hmap.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,4);
-						hmap.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,8);
-						hmap.unit_size = rxbuf[12];
+						hmap.robot_pos.ang = ((double)I16FROMBUF(rxbuf, 4))/65536.0 * 360.0;
+						hmap.robot_pos.x = (int32_t)I32FROMBUF(rxbuf,6);
+						hmap.robot_pos.y = (int32_t)I32FROMBUF(rxbuf,10);
+						hmap.unit_size = rxbuf[14];
 
-//						printf("Got %d x %d hmap at %d, %d, %d\n", hmap.xsamples, hmap.ysamples, hmap.robot_pos.ang, hmap.robot_pos.x, hmap.robot_pos.y);
-						memcpy(hmap.data, &rxbuf[13], hmap.xsamples*hmap.ysamples);
+						memcpy(hmap.data, &rxbuf[15], hmap.xsamples*hmap.ysamples);
+						printf("Got %d x %d hmap at %d, %d, %d.\n", hmap.xsamples, hmap.ysamples, hmap.robot_pos.ang, hmap.robot_pos.x, hmap.robot_pos.y);
 					}
 					break;
 
