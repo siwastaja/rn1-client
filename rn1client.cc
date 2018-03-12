@@ -129,6 +129,28 @@ sf::Color(255, 110, 190, 190)
 
 static int rsync_running = 0;
 
+static char *rsync_argv[4];
+
+void init_rsync_argv()
+{
+	rsync_argv[0] = (char*)malloc(100);
+	strcpy(rsync_argv[0], "/bin/bash");
+
+	rsync_argv[1] = (char*)malloc(100);
+	strcpy(rsync_argv[1], "map_sync.sh");
+
+	rsync_argv[2] = (char*)malloc(1024);
+
+	rsync_argv[3] = NULL;
+}
+
+void deinit_rsync_argv()
+{
+	free(rsync_argv[0]);
+	free(rsync_argv[1]);
+	free(rsync_argv[2]);
+}
+
 pid_t my_pid;
 static void run_map_rsync()
 {
@@ -140,8 +162,7 @@ static void run_map_rsync()
 
 	if((my_pid = fork()) == 0)
 	{
-		static char *argv[] = {"/bin/bash", "/home/hrst/rn1-client/do_map_sync.sh", NULL};
-		if((execve(argv[0], (char **)argv , NULL)) == -1)
+		if((execve(rsync_argv[0], (char **)rsync_argv , NULL)) == -1)
 		{
 			printf("run_map_rsync(): execve failed\n");
 		}
@@ -1151,9 +1172,13 @@ int main(int argc, char** argv)
 		online = 0;
 	}
 
+	init_rsync_argv();
 
 	if(online)
 	{
+		strncpy(rsync_argv[2], argv[1], 1023);
+		rsync_argv[2][1023] = 0;
+
 		serv_ip = argv[1];
 		serv_port = atoi(argv[2]);
 
@@ -1951,5 +1976,7 @@ int main(int argc, char** argv)
 
 
 	}
+
+	deinit_rsync_argv();
 	return 0;
 }
