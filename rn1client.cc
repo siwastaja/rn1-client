@@ -953,7 +953,7 @@ static int sonar_wr = 0;
 client_tof3d_hmap_t hmap;
 
 
-#define HMAP_ALPHA 255
+#define HMAP_ALPHA 255UL
 
 #define TOF3D_WALL           7 
 #define TOF3D_BIG_ITEM       6 
