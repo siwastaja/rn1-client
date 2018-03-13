@@ -953,7 +953,7 @@ static int sonar_wr = 0;
 client_tof3d_hmap_t hmap;
 
 
-#define HMAP_ALPHA 160
+#define HMAP_ALPHA 255
 
 #define TOF3D_WALL           7 
 #define TOF3D_BIG_ITEM       6 
@@ -978,6 +978,7 @@ static const uint32_t hmap_colors[8] = {
 };
 
 
+static int hmap_alpha_mult = 255;
 
 void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 {
@@ -1021,6 +1022,7 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 	sprite.setRotation(ang);
 	sprite.setPosition((hm->robot_pos.x+origin_x)/mm_per_pixel, (hm->robot_pos.y+origin_y)/mm_per_pixel);
 	sprite.setScale(sf::Vector2f(scale, scale));
+	sprite.setColor(sf::Color(255,255,255,hmap_alpha_mult));
 	win.draw(sprite);
 
 }
@@ -1481,6 +1483,7 @@ int main(int argc, char** argv)
 
 					case 138: // 3D TOF HMAP
 					{
+						hmap_alpha_mult = 255;
 						hmap.xsamples = I16FROMBUF(rxbuf, 0);
 						hmap.ysamples = I16FROMBUF(rxbuf, 2);
 
@@ -1903,6 +1906,7 @@ int main(int argc, char** argv)
 		draw_lidar(win, &lidar);
 		draw_sonar(win);
 		draw_tof3d_hmap(win, &hmap);
+		if(hmap_alpha_mult) hmap_alpha_mult-=8; if(hmap_alpha_mult < 40) hmap_alpha_mult = 40;
 
 		draw_hwdbg(win);
 		draw_bat_status(win);
