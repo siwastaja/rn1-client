@@ -51,6 +51,9 @@
 
 #define I16FROMBUF(b_, s_)  ( ((uint16_t)b_[(s_)+0]<<8) | ((uint16_t)b_[(s_)+1]<<0) )
 #define I32FROMBUF(b_, s_)  ( ((uint32_t)b_[(s_)+0]<<24) | ((uint32_t)b_[(s_)+1]<<16) | ((uint32_t)b_[(s_)+2]<<8) | ((uint32_t)b_[(s_)+3]<<0) )
+#define I32TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>24)&0xff; (b_)[(s_)+1] = ((i_)>>16)&0xff; (b_)[(s_)+2] = ((i_)>>8)&0xff; (b_)[(s_)+3] = ((i_)>>0)&0xff; }
+#define I16TOBUF(i_, b_, s_) {(b_)[(s_)] = ((i_)>>8)&0xff; (b_)[(s_)+1] = ((i_)>>0)&0xff; }
+
 
 world_t world;
 
@@ -1155,6 +1158,22 @@ void go_charge_msg(uint8_t params)
 	}
 }
 
+void maintenance_msg(int restart_mode)
+{
+	const int size = 1+2+4+4;
+	uint8_t test[size];
+	test[0] = 62;
+	test[1] = ((size-3)&0xff00)>>8;
+	test[2] = (size-3)&0xff;
+	I32TOBUF(0x12345678, test, 3);
+	I32TOBUF(restart_mode, test, 7);
+
+	if(tcpsock.send(test, size) != sf::Socket::Done)
+	{
+		printf("Send error\n");
+	}
+}
+
 #define NUM_DECORS 8
 
 info_state_t cur_info_state = INFO_STATE_UNDEF;
@@ -1829,27 +1848,34 @@ int main(int argc, char** argv)
 			}} else f_pressed[5] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
 			{
-				mode_msg(3);
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+					maintenance_msg(6); // rn1host git pull + restart
 				f_pressed[6] = true;
 			}} else f_pressed[6] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F7)) { if(!f_pressed[7]) 
 			{
-				mode_msg(2);
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+					maintenance_msg(135); // reboot raspi
+
 				f_pressed[7] = true;
 			}} else f_pressed[7] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F8)) { if(!f_pressed[8]) 
 			{
-				mode_msg(1);
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+					maintenance_msg(10); // update firmware
 				f_pressed[8] = true;
 			}} else f_pressed[8] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F9)) { if(!f_pressed[9]) 
 			{
-				go_charge_msg(0);
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+					maintenance_msg(136); // shut down raspi
+
 				f_pressed[9] = true;
 			}} else f_pressed[9] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F10)) { if(!f_pressed[10]) 
 			{
-				mode_msg(8);
+				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+					maintenance_msg(7); // delete maps & restart rn1host
 				f_pressed[10] = true;
 			}} else f_pressed[10] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F11)) { if(!f_pressed[11]) 
