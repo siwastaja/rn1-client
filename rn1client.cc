@@ -1,3 +1,5 @@
+//#define TOF_DEV
+
 /*
 	PULUROBOT RN1-CLIENT  Stand-alone GUI client prototype
 
@@ -63,7 +65,7 @@ uint8_t pict_data[1000000];
 
 
 uint32_t robot_id = 0xacdcabba;
-int cur_world_id = -1;
+int cur_speed_limit = 45;
 
 sf::Font arial;
 
@@ -1148,6 +1150,17 @@ void mode_msg(uint8_t mode)
 	}
 }
 
+void speedlimit_msg(uint8_t limit)
+{
+	uint8_t test[8] = {63 /*SPEEDLIM*/, 0, 5, limit, limit, limit, 40, 40};
+
+	if(tcpsock.send(test, 8) != sf::Socket::Done)
+	{
+		printf("Send error\n");
+	}
+}
+
+
 void go_charge_msg(uint8_t params)
 {
 	uint8_t test[4] = {57, 0, 1, params};
@@ -1252,8 +1265,8 @@ int main(int argc, char** argv)
 
 	int but_findcharger = gui.add_button(screen_x-170, 70 + 8*35, 140, 25, "  Find charger", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 
-	int but_worldminus  = gui.add_button(screen_x-170, 70 + 9*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_worldplus  = gui.add_button(screen_x-170+115, 70 + 9*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_speedminus  = gui.add_button(screen_x-170, 70 + 9*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_speedplus  = gui.add_button(screen_x-170+115, 70 + 9*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 
 	int but_addconstraint  = gui.add_button(screen_x-170, 70 + 10*35, 60, 25, "ADD", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 	int but_remconstraint  = gui.add_button(screen_x-170+65, 70 + 10*35, 60, 25, "REM", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
@@ -1263,8 +1276,10 @@ int main(int argc, char** argv)
 	bool left_click_on = false;
 	double prev_click_x = 0.0, prev_click_y = 0.0;
 
+	int cnt = 0;
 	while(win.isOpen())
 	{
+		cnt++;
 		int gui_box_xs = 170;
 		int gui_box_ys = screen_y-65;
 		int gui_box_x = screen_x-185;
@@ -1306,8 +1321,8 @@ int main(int argc, char** argv)
 				gui.buttons[but_stop]->x = but_start_x;
 				gui.buttons[but_free]->x = but_start_x+75;
 				gui.buttons[but_findcharger]->x = but_start_x;
-				gui.buttons[but_worldminus]->x = but_start_x;
-				gui.buttons[but_worldplus]->x = but_start_x+115;
+				gui.buttons[but_speedminus]->x = but_start_x;
+				gui.buttons[but_speedplus]->x = but_start_x+115;
 				gui.buttons[but_addconstraint]->x = but_start_x;
 				gui.buttons[but_remconstraint]->x = but_start_x+65;
 
@@ -1578,31 +1593,52 @@ int main(int argc, char** argv)
 				else if(but == but_addconstraint) click_mode = MODE_ADDCONSTRAINT;
 				else if(but == but_remconstraint) click_mode = MODE_REMCONSTRAINT;
 
-				if(but == but_worldplus)
+				if(but == but_speedplus)
 				{
-					gui.buttons[but_worldplus]->pressed = true;
-					cur_world_id = -1;
+					gui.buttons[but_speedplus]->pressed = true;
+
+					if(cnt&1)
+					{
+						if(cur_speed_limit < 10 || cur_speed_limit > 40)
+							cur_speed_limit++;
+						else
+							cur_speed_limit = cur_speed_limit*11/10;
+
+						if(cur_speed_limit > 70)
+							cur_speed_limit = 70;
+					}
 				}
 				else
 				{
-					if(gui.buttons[but_worldplus]->pressed)
+					if(gui.buttons[but_speedplus]->pressed)
 					{
-						gui.buttons[but_worldplus]->pressed = false;
-						mode_msg(9);
+						gui.buttons[but_speedplus]->pressed = false;
+						speedlimit_msg(cur_speed_limit);
 					}
 				}
 
-				if(but == but_worldminus)
+				if(but == but_speedminus)
 				{
-					gui.buttons[but_worldminus]->pressed = true;
-					cur_world_id = -1;
+					gui.buttons[but_speedminus]->pressed = true;
+
+					if(cnt&1)
+					{
+						if(cur_speed_limit < 11)
+							cur_speed_limit--;
+						else
+							cur_speed_limit = cur_speed_limit*10/11;
+
+						if(cur_speed_limit < 1)
+							cur_speed_limit = 1;
+					}
+					
 				}
 				else
 				{
-					if(gui.buttons[but_worldminus]->pressed)
+					if(gui.buttons[but_speedminus]->pressed)
 					{
-						gui.buttons[but_worldminus]->pressed = false;
-						mode_msg(10);
+						gui.buttons[but_speedminus]->pressed = false;
+						speedlimit_msg(cur_speed_limit);
 					}
 				}
 				
@@ -1849,33 +1885,48 @@ int main(int argc, char** argv)
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F6)) { if(!f_pressed[6]) 
 			{
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				{
 					maintenance_msg(6); // rn1host git pull + restart
+					win.close();
+				}
 				f_pressed[6] = true;
 			}} else f_pressed[6] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F7)) { if(!f_pressed[7]) 
 			{
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				{
 					maintenance_msg(135); // reboot raspi
+					win.close();
+				}
 
 				f_pressed[7] = true;
 			}} else f_pressed[7] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F8)) { if(!f_pressed[8]) 
 			{
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				{
 					maintenance_msg(10); // update firmware
+					win.close();
+				}
 				f_pressed[8] = true;
 			}} else f_pressed[8] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F9)) { if(!f_pressed[9]) 
 			{
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				{
 					maintenance_msg(136); // shut down raspi
+					win.close();
+				}
 
 				f_pressed[9] = true;
 			}} else f_pressed[9] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F10)) { if(!f_pressed[10]) 
 			{
 				if(sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))
+				{
 					maintenance_msg(7); // delete maps & restart rn1host
+					win.close();
+				}
 				f_pressed[10] = true;
 			}} else f_pressed[10] = false;
 			if(sf::Keyboard::isKeyPressed(sf::Keyboard::F11)) { if(!f_pressed[11]) 
@@ -1923,6 +1974,7 @@ int main(int argc, char** argv)
 
 		}
 
+		#ifndef TOF_DEV
 		win.clear(sf::Color(230,230,230));
 
 		draw_map(win);
@@ -1947,39 +1999,21 @@ int main(int argc, char** argv)
 		gui.draw_all_buttons();
 
 
-		draw_picture(win);
+
 
 		sf::Text t;
 		char tbuf[256];
 		t.setFont(arial);
 
 		static int fx=0;
-		if(cur_world_id == -1)
-		{
-			fx++;
-			if(fx < 15)
-				sprintf(tbuf, ".  .  .");
-			else if(fx < 30)
-				sprintf(tbuf, " .  .  .");
-			else if(fx < 45)
-			{
-				sprintf(tbuf, "  .  .  .");
-			}
-			else
-			{
-				sprintf(tbuf, "  .  .  .");
-				fx = 0;
-			}
-			t.setFillColor(sf::Color(220,0,0,255));
-		}
+
+		sprintf(tbuf, "SPEED %d", cur_speed_limit);
+		if(cur_speed_limit > 45)
+			t.setFillColor(sf::Color(255,0,0,255));
 		else
-		{
-			fx = 0;
-			sprintf(tbuf, "W %d", cur_world_id);
-			t.setFillColor(sf::Color(0,200,20,255));
-		}
+			t.setFillColor(sf::Color(200,200,0,255));
 		t.setString(tbuf);
-		t.setCharacterSize(17);
+		t.setCharacterSize(14);
 		t.setPosition(screen_x-170+35, 70 + 9*35);
 		win.draw(t);
 
@@ -1991,6 +2025,11 @@ int main(int argc, char** argv)
 			decor_sprite.setPosition(screen_x-180, (cur_info_state==INFO_STATE_DAIJUING)?(screen_y-240):(screen_y-220));
 			win.draw(decor_sprite);
 		}
+
+
+		#endif
+
+		draw_picture(win);
 
 		win.display();
 
