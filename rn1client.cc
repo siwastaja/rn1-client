@@ -423,13 +423,13 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 					pixels[4*(y*MAP_PAGE_W+x)+2] = 0;
 					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 				}
-				else if(page->units[x][y].result & UNIT_ITEM)
+/*				else if(page->units[x][y].result & UNIT_ITEM)
 				{
 					pixels[4*(y*MAP_PAGE_W+x)+0] = 0;
 					pixels[4*(y*MAP_PAGE_W+x)+1] = 0;
 					pixels[4*(y*MAP_PAGE_W+x)+2] = 255;
 					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
-				}
+				}*/
 				else if(page->units[x][y].result & UNIT_INVISIBLE_WALL)
 				{
 					pixels[4*(y*MAP_PAGE_W+x)+0] = 200;
@@ -467,31 +467,44 @@ void draw_page(sf::RenderWindow& win, map_page_t* page, int startx, int starty)
 					pixels[4*(y*MAP_PAGE_W+x)+3] = 255;
 				}
 
+#define PIX_MINUS(what_, how_) do{ int t_ = (what_) - (how_); if(t_ < 0) t_ = 0; (what_) = t_;} while(0);
+#define PIX_PLUS(what_, how_) do{ int t_ = (what_) + (how_); if(t_ > 255) t_ = 255; (what_) = t_;} while(0);
+
 				if(!(page->units[x][y].result & UNIT_INVISIBLE_WALL))
 				{
 					if(page->units[x][y].result & UNIT_3D_WALL)
 					{
-						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 1;
-						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
-						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
-						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+//						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 1;
+//						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
+//						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 1;
+						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+0], 30);
+						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+1], 30);
+						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+2], 60);
+
+//						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+//						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
 					}
 					else if(page->units[x][y].result & UNIT_DROP)
 					{
-						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
-						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 1;
-						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 0;
-						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+//						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
+//						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 1;
+//						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 0;
+						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+0], 20);
+						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+1], 60);
+						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+2], 30);
+//						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+//						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
 					}
 					else if(page->units[x][y].result & UNIT_ITEM)
 					{
-						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
-						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
-						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 2;
-						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
-						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
+//						pixels[4*(y*MAP_PAGE_W+x)+0] >>= 0;
+//						pixels[4*(y*MAP_PAGE_W+x)+1] >>= 0;
+//						pixels[4*(y*MAP_PAGE_W+x)+2] >>= 2;
+						PIX_PLUS(pixels[4*(y*MAP_PAGE_W+x)+0], 30);
+						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+1], 30);
+						PIX_MINUS(pixels[4*(y*MAP_PAGE_W+x)+2], 30);
+//						int a = pixels[4*(y*MAP_PAGE_W+x)+3]<<1; if(a>255) a=255;
+//						pixels[4*(y*MAP_PAGE_W+x)+3] = a;
 					}
 				}
 			}
