@@ -63,6 +63,7 @@ world_t world;
 int pict_id, pict_bpp, pict_xs, pict_ys, dbg_boost;
 uint8_t pict_data[1000000];
 
+char status_text[2000];
 
 uint32_t robot_id = 0xacdcabba;
 int cur_speed_limit = 45;
@@ -108,6 +109,30 @@ int charge_finished;
 float bat_voltage;
 float cha_voltage;
 int bat_percentage;
+
+int cur_cmd_status;
+void print_cur_cmd_status(sf::RenderWindow& win)
+{
+	char tbu[1000];
+	sf::Text t;
+	t.setFont(arial);
+	switch(cur_cmd_status)
+	{
+		case 55: sprintf(tbu, "Working on: Direct (manual) move"); break;
+		case 56: sprintf(tbu, "Working on: Routefinding"); break;
+		case 57: sprintf(tbu, "Working on: Finding the charger"); break;
+		default: break;
+	}
+
+	t.setString(tbu);
+	t.setCharacterSize(14);
+	t.setFillColor(sf::Color(200,255,200,200));
+	t.setPosition(10, screen_y-28);
+	win.draw(t);
+	t.setFillColor(sf::Color(0,100,0,255));
+	t.setPosition(8, screen_y-30);
+	win.draw(t);
+}
 
 const char* click_mode_names[8] =
 {
@@ -622,7 +647,7 @@ void draw_texts(sf::RenderWindow& win)
 	const int bot_box_xs = 400;
 	const int bot_box_ys = 63;
 	sf::RectangleShape rect(sf::Vector2f( bot_box_xs, bot_box_ys));
-	rect.setPosition(screen_x/2 - bot_box_xs/2, screen_y-bot_box_ys-10);
+	rect.setPosition(screen_x/2 - bot_box_xs/2, screen_y-bot_box_ys-10-30);
 	rect.setFillColor(sf::Color(255,255,255,160));
 	win.draw(rect);
 
@@ -631,14 +656,14 @@ void draw_texts(sf::RenderWindow& win)
 	t.setString(buf);
 	t.setCharacterSize(17);
 	t.setFillColor(sf::Color(0,0,0,160));
-	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-51);
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-51-30);
 	win.draw(t);
 
 	sprintf(buf, "cursor: x=%d  y=%d  mm", (int)click_x, (int)click_y);
 	t.setString(buf);
 	t.setCharacterSize(14);
 	t.setFillColor(sf::Color(0,0,0, 120));
-	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-30);
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-30-30);
 	win.draw(t);
 
 	if(rsync_running)
@@ -648,10 +673,10 @@ void draw_texts(sf::RenderWindow& win)
 	t.setString(buf);
 	t.setCharacterSize(17);
 	t.setFillColor(sf::Color(0,0,0,130));
-	t.setPosition(screen_x/2-bot_box_xs/2+11,screen_y-72);
+	t.setPosition(screen_x/2-bot_box_xs/2+11,screen_y-72-30);
 	win.draw(t);
 	t.setFillColor(rsync_running?sf::Color(0,190,20,200):click_mode_colors[click_mode]);
-	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-73);
+	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-73-30);
 	win.draw(t);
 
 	const float dbg_point_r = 35.0;
@@ -1396,6 +1421,7 @@ int main(int argc, char** argv)
 						cur_angle = ((double)I16FROMBUF(rxbuf, 0))/65536.0 * 360.0;
 						cur_x = (int32_t)I32FROMBUF(rxbuf,2);
 						cur_y = (int32_t)I32FROMBUF(rxbuf,6);
+						if(len>10) cur_cmd_status = rxbuf[10];
 					}
 					break;
 
@@ -1583,6 +1609,68 @@ int main(int argc, char** argv)
 						else
 							memcpy(pict_data, &rxbuf[7], pict_size);
 					}
+					break;
+
+					case 143: // Movement status
+					{
+						int16_t mov_start_ang = I16FROMBUF(rxbuf, 0);
+						int32_t mov_start_x = I32FROMBUF(rxbuf, 2);
+						int32_t mov_start_y = I32FROMBUF(rxbuf, 6);
+
+						int32_t mov_requested_x = I32FROMBUF(rxbuf, 10);
+						int32_t mov_requested_y = I32FROMBUF(rxbuf, 14);
+						int8_t  mov_requested_backmode = rxbuf[18];
+
+						int16_t mov_cur_ang = I16FROMBUF(rxbuf, 19);
+						int32_t mov_cur_x = I32FROMBUF(rxbuf, 21);
+						int32_t mov_cur_y = I32FROMBUF(rxbuf, 25);
+						uint8_t mov_status = rxbuf[29];
+						uint32_t mov_obstacle_flags = I32FROMBUF(rxbuf, 30);
+
+						if(mov_status == 0)
+							sprintf(status_text, "Manual movement SUCCESS, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm", mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y);
+						else
+							sprintf(status_text, "Manual movement STOPPED, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, statuscode=%u, HW obstacle flags=%08x", mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_status, mov_obstacle_flags);
+					}
+					break;
+
+					case 144: // Route status
+					{
+						int16_t mov_start_ang = I16FROMBUF(rxbuf, 0);
+						int32_t mov_start_x = I32FROMBUF(rxbuf, 2);
+						int32_t mov_start_y = I32FROMBUF(rxbuf, 6);
+
+						int32_t mov_requested_x = I32FROMBUF(rxbuf, 10);
+						int32_t mov_requested_y = I32FROMBUF(rxbuf, 14);
+
+						int16_t mov_cur_ang = I16FROMBUF(rxbuf, 18);
+						int32_t mov_cur_x = I32FROMBUF(rxbuf, 20);
+						int32_t mov_cur_y = I32FROMBUF(rxbuf, 24);
+
+						uint8_t mov_status = rxbuf[28];
+						int16_t mov_reroute_cnt = I16FROMBUF(rxbuf, 29);
+
+						if(mov_status == 0)
+							sprintf(status_text, "SUCCESSFULLY followed the route, start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, needed to reroute %d times", 
+								mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_reroute_cnt);
+						else
+						{
+							static const char* fail_reasons[5] =
+							{
+								"Success",
+								"Obstacles on map close to the beginning, can't get started",
+								"Got a good start thanks to backing off, but obstacles on the way later",
+								"Got a good start, but obstacles on the way later",
+								"Unknown (newly implemented?) reason"
+							};
+
+							uint8_t reason = mov_status; if(reason >= 4) reason=4;
+
+							sprintf(status_text, "GAVE UP routefinding, reason: %u[%s], start=(%d,%d)mm -> req=(%d,%d)mm, actual=(%d,%d)mm, did reroute %d times (reason applies to the latest reroute)", mov_status, 
+								fail_reasons[reason], mov_start_x, mov_start_y, mov_requested_x, mov_requested_y, mov_cur_x, mov_cur_y, mov_reroute_cnt);
+						}
+					}
+					break;
 
 					default:
 					break;
@@ -1765,6 +1853,11 @@ int main(int argc, char** argv)
 								if(tcpsock.send(test, 12) != sf::Socket::Done)
 								{
 									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
+								}
+								else
+								{
+									sprintf(status_text, "Sent command: search for route");
 								}
 							} break;
 
@@ -1781,7 +1874,13 @@ int main(int argc, char** argv)
 								if(tcpsock.send(test, 12) != sf::Socket::Done)
 								{
 									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
 								}
+								else
+								{
+									sprintf(status_text, "Sent command: move directly");
+								}
+
 							} break;
 
 							case MODE_FORCE_BACK:
@@ -1797,7 +1896,13 @@ int main(int argc, char** argv)
 								if(tcpsock.send(test, 12) != sf::Socket::Done)
 								{
 									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
 								}
+								else
+								{
+									sprintf(status_text, "Sent command: move directly (force)");
+								}
+
 
 							} break;
 
@@ -1812,6 +1917,11 @@ int main(int argc, char** argv)
 								if(tcpsock.send(test, 12) != sf::Socket::Done)
 								{
 									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
+								}
+								else
+								{
+									sprintf(status_text, "Sent command: rotate robot pose");
 								}
 
 							} break;
@@ -1824,7 +1934,13 @@ int main(int argc, char** argv)
 								if(tcpsock.send(test, 11) != sf::Socket::Done)
 								{
 									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
 								}
+								else
+								{
+									sprintf(status_text, "Sent command: add forbidden area");
+								}
+
 							} break;
 
 							case MODE_REMCONSTRAINT: {
@@ -1835,7 +1951,13 @@ int main(int argc, char** argv)
 								if(tcpsock.send(test, 11) != sf::Socket::Done)
 								{
 									printf("Send error\n");
+									sprintf(status_text, "Send error, connection lost?");
 								}
+								else
+								{
+									sprintf(status_text, "Sent command: remove forbidden area");
+								}
+
 							} break;
 							default: break;
 						}
@@ -2013,23 +2135,39 @@ int main(int argc, char** argv)
 
 
 
+		{
+			sf::Text t;
+			char tbuf[256];
+			t.setFont(arial);
 
-		sf::Text t;
-		char tbuf[256];
-		t.setFont(arial);
+			static int fx=0;
 
-		static int fx=0;
+			sprintf(tbuf, "SPEED %d", cur_speed_limit);
+			if(cur_speed_limit > 45)
+				t.setFillColor(sf::Color(255,0,0,255));
+			else
+				t.setFillColor(sf::Color(200,200,0,255));
+			t.setString(tbuf);
+			t.setCharacterSize(14);
+			t.setPosition(screen_x-170+35, 70 + 9*35);
+			win.draw(t);
+		}
 
-		sprintf(tbuf, "SPEED %d", cur_speed_limit);
-		if(cur_speed_limit > 45)
-			t.setFillColor(sf::Color(255,0,0,255));
-		else
-			t.setFillColor(sf::Color(200,200,0,255));
-		t.setString(tbuf);
-		t.setCharacterSize(14);
-		t.setPosition(screen_x-170+35, 70 + 9*35);
-		win.draw(t);
+		{
+			sf::Text t;
+			t.setFont(arial);
 
+			t.setString(status_text);
+			t.setCharacterSize(12);
+			t.setFillColor(sf::Color(255,255,255,200));
+			t.setPosition(10, screen_y-15);
+			win.draw(t);
+			t.setFillColor(sf::Color(0,0,0,255));
+			t.setPosition(8, screen_y-17);
+			win.draw(t);
+		}
+
+		print_cur_cmd_status(win);
 
 		if(static_cast<int>(cur_info_state) >= 0 && static_cast<int>(cur_info_state) < NUM_DECORS)
 		{
