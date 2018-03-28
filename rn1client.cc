@@ -121,7 +121,7 @@ void print_cur_cmd_status(sf::RenderWindow& win)
 		case 55: sprintf(tbu, "Working on: Direct (manual) move"); break;
 		case 56: sprintf(tbu, "Working on: Routefinding"); break;
 		case 57: sprintf(tbu, "Working on: Finding the charger"); break;
-		default: break;
+		default: sprintf(tbu, "State bar"); break;
 	}
 
 	t.setString(tbu);
@@ -583,7 +583,7 @@ void draw_hwdbg(sf::RenderWindow& win)
 	{
 		sprintf(buf, "dbg[%2i] = %11d (%08x)", i, hwdbg[i], hwdbg[i]);
 		t.setString(buf);
-		t.setPosition(10,screen_y-170 + 15*i);
+		t.setPosition(10,screen_y-170-30 + 15*i);
 		win.draw(t);
 	}
 }
@@ -998,8 +998,9 @@ client_tof3d_hmap_t hmap;
 
 #define HMAP_ALPHA 255UL
 
-#define TOF3D_WALL           7 
-#define TOF3D_BIG_ITEM       6 
+#define TOF3D_WALL           8 
+#define TOF3D_BIG_ITEM       7 
+#define TOF3D_LOW_CEILING    6 
 #define TOF3D_BIG_DROP       5
 #define TOF3D_SMALL_ITEM     4 
 #define TOF3D_SMALL_DROP     3
@@ -1009,15 +1010,16 @@ client_tof3d_hmap_t hmap;
 
 #define RGBA32(r_,g_,b_,a_)  ((r_) | ((g_)<<8) | ((b_)<<16) | ((a_)<<24))
 
-static const uint32_t hmap_colors[8] = {
+static const uint32_t hmap_colors[9] = {
 /* 0 UNSEEN     */ RGBA32(128UL,128UL,128UL, 0),
 /* 1 FLOOR      */ RGBA32(150UL,255UL,150UL, HMAP_ALPHA/2),
 /* 2 THRESHOLD  */ RGBA32(  0UL,200UL,200UL, HMAP_ALPHA),
 /* 3 SMALL_DROP */ RGBA32( 50UL,  0UL,200UL, HMAP_ALPHA),
 /* 4 SMALL_ITEM */ RGBA32(  0UL,255UL,  0UL, HMAP_ALPHA),
 /* 5 BIG_DROP   */ RGBA32(220UL,  0UL,220UL, HMAP_ALPHA),
-/* 6 BIG_ITEM   */ RGBA32(255UL,  0UL,  0UL, HMAP_ALPHA),
-/* 7 WALL       */ RGBA32(200UL,200UL,  0UL, HMAP_ALPHA)
+/* 6 LOW_CEILING*/ RGBA32(255UL,  0UL, 50UL, HMAP_ALPHA),
+/* 7 BIG_ITEM   */ RGBA32(220UL,100UL,  0UL, HMAP_ALPHA),
+/* 8 WALL       */ RGBA32(200UL,200UL,  0UL, HMAP_ALPHA)
 };
 
 
@@ -1044,7 +1046,7 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 		for(int sx=0; sx < hm->xsamples; sx++)
 		{
 			uint8_t val = hm->data[sy*hm->xsamples+sx];
-			if(val > 7)
+			if(val > 8)
 			{
 				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
 				continue;
@@ -1245,6 +1247,7 @@ int main(int argc, char** argv)
 	}
 
 	init_rsync_argv();
+	sprintf(status_text, "Status bar");
 
 	if(online)
 	{
