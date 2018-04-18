@@ -45,6 +45,7 @@
 #include <SFML/Network.hpp>
 
 #include "../rn1-host/mapping.h"
+#include "../rn1-host/datatypes.h"
 #include "../rn1-brain/comm.h"
 #include "client_memdisk.h"
 #include "uthash.h"
@@ -742,6 +743,7 @@ void draw_picture(sf::RenderWindow& win)
 	float my = m.y;
 
 	int pic_x = 15, pic_y;
+#ifdef TOF_DEV
 	if(pict_id==100)
 	{
 		pic_y = 15+scale*pict_ys+10;
@@ -754,15 +756,16 @@ void draw_picture(sf::RenderWindow& win)
 	}
 	else
 	{
+#endif
 		pic_y = 15;
 		mx -= 15; my -= 15;
+#ifdef TOF_DEV
 	}
+#endif
 	sprite.setPosition(pic_x, pic_y);
 
 	mx /= scale;
 	my /= scale;
-
-	printf("mx = %f  my = %f\n", mx, my);
 
 	int process_as_dist = 0;
 
@@ -887,8 +890,9 @@ void draw_picture(sf::RenderWindow& win)
 	}
 
 
-
+#ifdef TOF_DEV
 	pict_id = -1;
+#endif
 
 }
 
@@ -1674,6 +1678,7 @@ int main(int argc, char** argv)
 						}
 					}
 					break;
+
 
 					default:
 					break;
