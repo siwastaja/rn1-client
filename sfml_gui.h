@@ -65,8 +65,8 @@ struct symbol
 
 const symbol SYMBOLS[] = 
 {     // nPoint fill? fill color            line?  W  line color            points (x,y,x,y,...)          text offset
-	1, {3, sf::Color(  0,180,  0), true, 1, sf::Color(  0, 80,  0), {0,0, 0,10, 10,5}},           15,	    // 0 = PLAY
-	1, {4, sf::Color(180,  0,  0), true, 1, sf::Color( 80,  0,  0), {0,0, 0,10, 10,10, 10,0}},    15,	    // 1 = STOP
+	1, {3, sf::Color(180,  0,  0), true, 1, sf::Color(  0, 80,  0), {0,0, 0,10, 10,5}},           15,	    // 0 = PLAY
+	1, {4, sf::Color(  0,180, 40), true, 1, sf::Color( 80,  0,  0), {0,0, 0,10, 10,10, 10,0}},    15,	    // 1 = STOP
 	1, {3, sf::Color(  0,200,200), true, 1, sf::Color(  0, 90, 90), {0,2, 0,8,   8,5}},           15,	    // 2 = PLAYSLOW
 	1, {3, sf::Color(110,255,110), true, 1, sf::Color( 30, 60, 30), {0,0, 0,10, 10,5}},           15,	    // 3 = ROUTE
 	1, {3, sf::Color(235,235,110), true, 1, sf::Color( 60, 60, 30), {0,0, 0,10, 10,5}},           15,	    // 4 = MANUAL

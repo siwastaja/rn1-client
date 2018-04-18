@@ -606,6 +606,8 @@ void draw_bat_status(sf::RenderWindow& win)
 	}
 }
 
+int state_is_unsynchronized;
+
 void draw_texts(sf::RenderWindow& win)
 {
 	sf::Text t;
@@ -634,7 +636,9 @@ void draw_texts(sf::RenderWindow& win)
 	t.setPosition(screen_x/2-bot_box_xs/2+10,screen_y-30-30);
 	win.draw(t);
 
-	if(rsync_running)
+	if(state_is_unsynchronized)
+		sprintf(buf, "Robot state is unsynchronized...");
+	else if(rsync_running)
 		sprintf(buf, "Syncing maps...");
 	else
 		sprintf(buf, "%s", click_mode_names[click_mode]);
@@ -1137,6 +1141,24 @@ void maintenance_msg(int restart_mode)
 	}
 }
 
+state_vect_t received_state_vect;
+state_vect_t state_vect_to_send;
+
+void send_state_vect()
+{
+	uint8_t test[3+STATE_VECT_LEN];
+	test[0] = 64;
+	test[1] = ((STATE_VECT_LEN)&0xff00)>>8;
+	test[2] = (STATE_VECT_LEN)&0xff;
+	memcpy(&test[3], state_vect_to_send, STATE_VECT_LEN);
+
+	if(tcpsock.send(test, 3+STATE_VECT_LEN) != sf::Socket::Done)
+	{
+		printf("Send error\n");
+	}
+}
+
+
 #define NUM_DECORS 8
 
 info_state_t cur_info_state = INFO_STATE_UNDEF;
@@ -1201,27 +1223,36 @@ int main(int argc, char** argv)
 
 	sfml_gui gui(win, arial);
 
-	int but_localize    = gui.add_button(screen_x-170, 50 + 0*35, 140, 25, "     Localize (init)", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
-	int but_autonomous  = gui.add_button(screen_x-170, 50 + 1*35, 140, 25, "      Autonomous", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
-	int but_takecontrol = gui.add_button(screen_x-170, 50 + 2*35, 140, 25, "      Take control", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
-	int but_stop        = gui.add_button(screen_x-170, 50 + 3*35, 65, 25, "Stop", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
-	int but_free        = gui.add_button(screen_x-170+75, 50 + 3*35, 65, 25, "Free", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+	#define BUT_WIDTH 200
 
-	int but_route     = gui.add_button(screen_x-170, 60 + 4*35, 100, 25, "Route", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_ROUTE, DEF_BUT_COL_PRESSED, false);
-	int but_manu_fwd  = gui.add_button(screen_x-170, 60 + 5*35, 100, 25, "Manual fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_MANUAL, DEF_BUT_COL_PRESSED, false);
-	int but_manu_back = gui.add_button(screen_x-170+110, 60 + 5*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_force_fwd = gui.add_button(screen_x-170, 60 + 6*35, 100, 25, "Force fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_FORCE, DEF_BUT_COL_PRESSED, false);
-	int but_force_back= gui.add_button(screen_x-170+110, 60 + 6*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_pose      = gui.add_button(screen_x-170, 60 + 7*35, 100, 25, "Rotate pose", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_POSE, DEF_BUT_COL_PRESSED, false);
+	int but_start_x = screen_x-BUT_WIDTH;
 
-	int but_findcharger = gui.add_button(screen_x-170, 70 + 8*35, 140, 25, "  Find charger", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_localize    = gui.add_button(but_start_x, 50 + 0*35, 140, 25, "     Localize (init)", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
+	int but_stop        = gui.add_button(but_start_x, 50 + 1*35, 65, 25, "Stop", DEF_BUT_COL, DEF_BUT_FONT_SIZE+2, -1, DEF_BUT_COL_PRESSED, false);
 
-	int but_speedminus  = gui.add_button(screen_x-170, 70 + 9*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_speedplus  = gui.add_button(screen_x-170+115, 70 + 9*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_route     = gui.add_button(but_start_x, 60 + 2*35, 100, 25, "Route", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_ROUTE, DEF_BUT_COL_PRESSED, false);
+	int but_manu_fwd  = gui.add_button(but_start_x, 60 + 3*35, 100, 25, "Manual fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_MANUAL, DEF_BUT_COL_PRESSED, false);
+	int but_manu_back = gui.add_button(but_start_x+110, 60 + 3*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_force_fwd = gui.add_button(but_start_x, 60 + 4*35, 100, 25, "Force fwd", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_FORCE, DEF_BUT_COL_PRESSED, false);
+	int but_force_back= gui.add_button(but_start_x+110, 60 + 4*35, 30, 25, "rev", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_pose      = gui.add_button(but_start_x, 60 + 5*35, 100, 25, "Rotate pose", DEF_BUT_COL, DEF_BUT_FONT_SIZE, SYM_POSE, DEF_BUT_COL_PRESSED, false);
 
-	int but_addconstraint  = gui.add_button(screen_x-170, 70 + 10*35, 60, 25, "ADD", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
-	int but_remconstraint  = gui.add_button(screen_x-170+65, 70 + 10*35, 60, 25, "REM", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_findcharger = gui.add_button(but_start_x, 70 + 6*35, 140, 25, "  Find charger", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
 
+	int but_speedminus  = gui.add_button(but_start_x, 70 + 7*35, 25, 25, " -", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_speedplus  = gui.add_button(but_start_x+115, 70 + 7*35, 25, 25, " +", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+
+	int but_addconstraint  = gui.add_button(but_start_x, 70 + 8*35, 60, 25, "ADD", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+	int but_remconstraint  = gui.add_button(but_start_x+65, 70 + 8*35, 60, 25, "REM", DEF_BUT_COL, DEF_BUT_FONT_SIZE, -1, DEF_BUT_COL_PRESSED, false);
+
+	int but_state_vect[STATE_VECT_LEN];
+
+	for(int i=0; i<STATE_VECT_LEN; i++)
+	{
+		but_state_vect[i] = gui.add_button(but_start_x, 70 + 9*35 + i*25, 140, 20, state_vect_names[i], DEF_BUT_COL, /*font size:*/10, -1, DEF_BUT_COL_PRESSED, SYM_STOP);
+		state_vect_to_send.table[i] = received_state_vect.table[i] = 0;
+	}
+	
 
 	bool right_click_on = false;
 	bool left_click_on = false;
@@ -1231,9 +1262,9 @@ int main(int argc, char** argv)
 	while(win.isOpen())
 	{
 		cnt++;
-		int gui_box_xs = 170;
+		int gui_box_xs = BUT_WIDTH;
 		int gui_box_ys = screen_y-65;
-		int gui_box_x = screen_x-185;
+		int gui_box_x = screen_x-BUT_WIDTH-15;
 		int gui_box_y = 15;
 
 		gui.buttons[but_route]->pressed =      (click_mode==MODE_ROUTE);
@@ -1244,6 +1275,22 @@ int main(int argc, char** argv)
 		gui.buttons[but_pose]->pressed =       (click_mode==MODE_POSE);
 		gui.buttons[but_addconstraint]->pressed = (click_mode==MODE_ADDCONSTRAINT);
 		gui.buttons[but_remconstraint]->pressed = (click_mode==MODE_REMCONSTRAINT);
+
+		state_is_unsynchronized = 0;
+		for(int i=0; i<STATE_VECT_LEN; i++)
+		{
+			gui.buttons[but_state_vect[i]]->pressed = state_vect_to_send.table[i];
+			if(received_state_vect.table[i] != state_vect_to_send.table[i])
+			{
+				gui.buttons[but_state_vect[i]]->symbol = SYM_PLAY;
+				state_is_unsynchronized = 1;
+			}
+			else
+			{
+				gui.buttons[but_state_vect[i]]->symbol = SYM_STOP;
+			}
+		}
+
 
 		if(poll_map_rsync() >= 0)
 			load_all_pages_on_disk(&world);
@@ -1259,7 +1306,8 @@ int main(int argc, char** argv)
 				sf::Vector2u size = win.getSize();
 				screen_x = size.x;
 				screen_y = size.y;
-				int but_start_x = screen_x-170;
+				but_start_x = screen_x-BUT_WIDTH;
+
 				gui.buttons[but_route]->x = but_start_x;
 				gui.buttons[but_manu_fwd]->x = but_start_x;
 				gui.buttons[but_manu_back]->x = but_start_x+110;
@@ -1267,15 +1315,17 @@ int main(int argc, char** argv)
 				gui.buttons[but_force_back]->x = but_start_x+110;
 				gui.buttons[but_pose]->x = but_start_x;
 				gui.buttons[but_localize]->x = but_start_x;
-				gui.buttons[but_autonomous]->x = but_start_x;
-				gui.buttons[but_takecontrol]->x = but_start_x;
 				gui.buttons[but_stop]->x = but_start_x;
-				gui.buttons[but_free]->x = but_start_x+75;
 				gui.buttons[but_findcharger]->x = but_start_x;
 				gui.buttons[but_speedminus]->x = but_start_x;
 				gui.buttons[but_speedplus]->x = but_start_x+115;
 				gui.buttons[but_addconstraint]->x = but_start_x;
 				gui.buttons[but_remconstraint]->x = but_start_x+65;
+		
+				for(int i=0; i<STATE_VECT_LEN; i++)
+				{
+					gui.buttons[but_state_vect[i]]->x = but_start_x;
+				}
 
 				sf::FloatRect visibleArea(0, 0, screen_x, screen_y);
 				win.setView(sf::View(visibleArea));
@@ -1586,6 +1636,19 @@ int main(int argc, char** argv)
 					break;
 
 
+					case 145: // State vector
+					{
+						if(len != STATE_VECT_LEN)
+						{
+							printf("Illegal state vector message length - do the API versions of rn1host and rn1client match?\n");
+							break;
+						}
+
+						memcpy(received_state_vector.table, rxbuf, STATE_VECT_LEN);
+						memcpy(state_vector_to_send.table, rxbuf, STATE_VECT_LEN);
+					}
+					break;
+
 					default:
 					break;
 				}
@@ -1670,32 +1733,6 @@ int main(int argc, char** argv)
 					}
 				}
 
-				if(but == but_autonomous)
-				{
-					gui.buttons[but_autonomous]->pressed = true;
-				}
-				else
-				{
-					if(gui.buttons[but_autonomous]->pressed)
-					{
-						gui.buttons[but_autonomous]->pressed = false;
-						mode_msg(2);
-					}
-				}
-
-				if(but == but_takecontrol)
-				{
-					gui.buttons[but_takecontrol]->pressed = true;
-				}
-				else
-				{
-					if(gui.buttons[but_takecontrol]->pressed)
-					{
-						mode_msg(1);
-						gui.buttons[but_takecontrol]->pressed = false;
-					}
-				}
-
 				if(but == but_stop)
 				{
 					gui.buttons[but_stop]->pressed = true;
@@ -1706,19 +1743,6 @@ int main(int argc, char** argv)
 					{
 						mode_msg(8);
 						gui.buttons[but_stop]->pressed = false;
-					}
-				}
-
-				if(but == but_free)
-				{
-					gui.buttons[but_free]->pressed = true;
-				}
-				else
-				{
-					if(gui.buttons[but_free]->pressed)
-					{
-						mode_msg(5);
-						gui.buttons[but_free]->pressed = false;
 					}
 				}
 
@@ -1733,6 +1757,22 @@ int main(int argc, char** argv)
 						go_charge_msg(0);
 						gui.buttons[but_findcharger]->pressed = false;
 					}
+				}
+
+				static bool statebut_pressed[STATE_VECT_LEN];
+				for(int i=0; i<STATE_VECT_LEN; i++)
+				{
+					if(but == but_state_vect[i])
+					{
+						if(!statebut_pressed[i])
+						{
+							statebut_pressed[i] = true;
+							state_vector_to_send.table[i] = received_state_vector[i]?0:1;
+							send_state_vect();
+						}				
+					}
+					else
+						statebut_pressed[i] = false;
 				}
 
 
@@ -2063,7 +2103,7 @@ int main(int argc, char** argv)
 				t.setFillColor(sf::Color(200,200,0,255));
 			t.setString(tbuf);
 			t.setCharacterSize(14);
-			t.setPosition(screen_x-170+35, 70 + 9*35);
+			t.setPosition(but_start_x+35, 70 + 9*35);
 			win.draw(t);
 		}
 
