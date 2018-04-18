@@ -71,11 +71,8 @@ int cur_speed_limit = 45;
 
 sf::Font arial;
 
-//int screen_x = 1200;
-//int screen_y = 900;
-
 int screen_x = 1200;
-int screen_y = 700; //700;
+int screen_y = 700;
 
 double click_x, click_y;
 
@@ -279,19 +276,6 @@ typedef struct
 	int y;
 } xy_t;
 
-typedef struct search_unit_T
-{
-	xy_t loc;
-	float g;
-	float f;
-	int direction;
-
-	search_unit_T* parent;
-
-	UT_hash_handle hh;
-} search_unit_t;
-
-
 typedef struct route_unit_T
 {
 	xy_t loc;
@@ -358,23 +342,6 @@ void clear_route(route_unit_t **route)
 		free(elt);
 	}
 	*route = NULL;
-}
-
-void draw_route(sf::RenderWindow& win, route_unit_t **route)
-{
-
-	if(!route)
-		return;
-
-	route_unit_t *rt;
-	DL_FOREACH(*route, rt)
-	{
-		if(rt->backmode)
-			dev_draw_circle(win, rt->loc.x, rt->loc.y, 130,20,40,-123);
-		else
-			dev_draw_circle(win, rt->loc.x, rt->loc.y, 20,130,40,-123);
-
-	}
 }
 
 void draw_route_mm(sf::RenderWindow& win, route_unit_t **route)
@@ -1075,67 +1042,6 @@ void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
 	win.draw(sprite);
 
 }
-
-
-/*
-void draw_tof3d_hmap(sf::RenderWindow& win, client_tof3d_hmap_t* hm)
-{
-	for(int sy=0; sy < hm->ysamples; sy+=1)
-	{
-		for(int sx=0; sx < hm->xsamples; sx+=1)
-		{
-			int8_t val = hm->data[sy*hm->xsamples+sx];
-			if(val == 0) continue;
-//			if(val < -2 || val > 5)
-//			{
-//				printf("draw_tof3d_hmap() invalid val %d at (%d, %d)\n", val, sx, sy);
-//				continue;
-//			}
-
-			sf::RectangleShape rect(sf::Vector2f((float)hm->unit_size/mm_per_pixel/1.5,(float)hm->unit_size/mm_per_pixel/1.5));
-			rect.setOrigin((float)hm->unit_size/mm_per_pixel/3.0,(float)hm->unit_size/mm_per_pixel/3.0);
-			float x = sx*hm->unit_size;
-			float y = (sy-hm->ysamples/2)*hm->unit_size;
-
-			float ang = hm->robot_pos.ang/-360.0*2.0*M_PI;
-			float rotax = x*cos(ang) + y*sin(ang) + hm->robot_pos.x;
-			float rotay = -1*x*sin(ang) + y*cos(ang) + hm->robot_pos.y;
-
-			rect.setPosition((rotax + origin_x)/mm_per_pixel,
-					 (rotay + origin_y)/mm_per_pixel);
-//			rect.setFillColor(hmap_colors[val+2]);
-
-			int mm = val*20;
-
-			int color = mm/5; if(color > 255) color = 255; else if(color < -255) color = -255;
-			if(color<0)
-				rect.setFillColor(sf::Color(-1*color,0,0,255));
-			else
-				rect.setFillColor(sf::Color(0,color,0,255));
-
-			//rect.setFillColor(sf::Color(128,128+val,128,128));
-			win.draw(rect);
-
-			if(sy%4==0 && sx%4==0)
-			{
-				sf::Text t;
-				char tbuf[16];
-	//			if(val==-100)
-	//				sprintf(tbuf, "  -");
-	//			else
-					sprintf(tbuf, "%d", (int32_t)val*2);
-				t.setFont(arial);
-				t.setFillColor(sf::Color(0,0,0,128));
-				t.setString(tbuf);
-				t.setCharacterSize(8);
-				t.setPosition((rotax + origin_x)/mm_per_pixel,
-						 (rotay + origin_y)/mm_per_pixel);
-				win.draw(t);
-			}
-		}
-	}
-}
-*/
 
 void draw_lidar(sf::RenderWindow& win, client_lidar_scan_t* lid)
 {
