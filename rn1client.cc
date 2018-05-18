@@ -703,7 +703,7 @@ void draw_picture(sf::RenderWindow& win)
 	sf::Vector2i m = sf::Mouse::getPosition(win);
 
 
-	float scale = 5.0;
+	float scale = 8.0;
 
 	sf::Texture t;
 	t.create(pict_xs, pict_ys);
@@ -717,12 +717,12 @@ void draw_picture(sf::RenderWindow& win)
 #ifdef TOF_DEV
 	if(pict_id==100)
 	{
-		pic_y = 15+scale*pict_ys+10;
+		pic_y = 15+scale*0*pict_ys+10;
 		mx -= 15; my -= 15+scale*pict_ys+10;
 	}
 	else if(pict_id==101 || pict_id==110)
 	{
-		pic_y = 15+scale*2*pict_ys+20;
+		pic_y = 15+scale*1*pict_ys+20;
 		mx -= 15; my -= 15+2*scale*pict_ys+20;
 	}
 	else
@@ -1150,7 +1150,7 @@ void send_state_vect()
 	test[0] = 64;
 	test[1] = ((STATE_VECT_LEN)&0xff00)>>8;
 	test[2] = (STATE_VECT_LEN)&0xff;
-	memcpy(&test[3], state_vect_to_send, STATE_VECT_LEN);
+	memcpy(&test[3], state_vect_to_send.table, STATE_VECT_LEN);
 
 	if(tcpsock.send(test, 3+STATE_VECT_LEN) != sf::Socket::Done)
 	{
@@ -1223,7 +1223,7 @@ int main(int argc, char** argv)
 
 	sfml_gui gui(win, arial);
 
-	#define BUT_WIDTH 200
+	#define BUT_WIDTH 220
 
 	int but_start_x = screen_x-BUT_WIDTH;
 
@@ -1249,7 +1249,7 @@ int main(int argc, char** argv)
 
 	for(int i=0; i<STATE_VECT_LEN; i++)
 	{
-		but_state_vect[i] = gui.add_button(but_start_x, 70 + 9*35 + i*25, 140, 20, state_vect_names[i], DEF_BUT_COL, /*font size:*/10, -1, DEF_BUT_COL_PRESSED, SYM_STOP);
+		but_state_vect[i] = gui.add_button(but_start_x, 70 + 9*35 + i*25, 190, 18, state_vect_names[i], DEF_BUT_COL, /*font size:*/11, -1, DEF_BUT_COL_PRESSED, SYM_STOP);
 		state_vect_to_send.table[i] = received_state_vect.table[i] = 0;
 	}
 	
@@ -1644,8 +1644,8 @@ int main(int argc, char** argv)
 							break;
 						}
 
-						memcpy(received_state_vector.table, rxbuf, STATE_VECT_LEN);
-						memcpy(state_vector_to_send.table, rxbuf, STATE_VECT_LEN);
+						memcpy(received_state_vect.table, rxbuf, STATE_VECT_LEN);
+						memcpy(state_vect_to_send.table, rxbuf, STATE_VECT_LEN);
 					}
 					break;
 
@@ -1767,7 +1767,7 @@ int main(int argc, char** argv)
 						if(!statebut_pressed[i])
 						{
 							statebut_pressed[i] = true;
-							state_vector_to_send.table[i] = received_state_vector[i]?0:1;
+							state_vect_to_send.table[i] = received_state_vect.table[i]?0:1;
 							send_state_vect();
 						}				
 					}
@@ -2103,7 +2103,7 @@ int main(int argc, char** argv)
 				t.setFillColor(sf::Color(200,200,0,255));
 			t.setString(tbuf);
 			t.setCharacterSize(14);
-			t.setPosition(but_start_x+35, 70 + 9*35);
+			t.setPosition(but_start_x+35, 70 + 7*35);
 			win.draw(t);
 		}
 
